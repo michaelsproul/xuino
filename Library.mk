@@ -11,31 +11,24 @@ ARDUINO_CORE ?= $(ARDUINO_DIR)/hardware/arduino/cores/arduino
 BOARD_VARIANT = standard
 ARDUINO_VARIANT ?= $(ARDUINO_DIR)/hardware/arduino/variants/$(BOARD_VARIANT)
 
-OBJECTS = CDC.o HardwareSerial.o HID.o IPAddress.o main.o Print.o Stream.o \
+VPATH = $(ARDUINO_CORE):$(ARDUINO_CORE)/avr-libc:$(ARDUINO_VARIANT)
+
+INCLUDES = -I $(ARDUINO_CORE) -I $(ARDUINO_CORE)/avr-libc -I $(ARDUINO_VARIANT)
+
+LIBOBJS = CDC.o HardwareSerial.o HID.o IPAddress.o main.o Print.o Stream.o \
 	  Tone.o USBCore.o WInterrupts.o wiring.o wiring_analog.o \
 	  wiring_digital.o wiring_pulse.o wiring_shift.o WMath.o WString.o \
 	  malloc.o realloc.o
 
-LIBOBJS = $(OBJECTS:%.o=obj/%.o)
-
-default: libarduino.a
-
 libarduino.a: $(LIBOBJS)
-	avr-ar rcs $(LIBARDUINO) $^
+	avr-ar rcs libarduino.a $^
+	rm *.o
 
-obj/*.o: src/*.c
-	mkdir -p obj
-	$(CC) $(LIB_C_FLAGS) -c -o $@ $< -I src
+%.o: %.cpp
+	$(CXX) $(LIB_C_FLAGS) -c -o $@ $< $(INCLUDES)
 
-obj/*.o: src/*.cpp
-	mkdir -p obj
-	$(CXX) $(LIB_C_FLAGS) -c -o $@ $< -I src
-
-src/*.c*:
-	mkdir -p src
-	cp -ru $(ARDUINO_CORE)/* src
-	cp -ru $(ARDUINO_CORE)/avr-libc/* src
-	cp -ru $(ARDUINO_VARIANT)/* src
+%.o: %.c
+	$(CC) $(LIB_C_FLAGS) -c -o $@ $< $(INCLUDES)
 
 clean:
 	rm -rf obj src libarduino.a

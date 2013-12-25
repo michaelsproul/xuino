@@ -1,0 +1,5 @@
+test
+*.a
+*.hex
+*.elf
+*.ino
