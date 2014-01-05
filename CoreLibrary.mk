@@ -1,17 +1,17 @@
-# Make file for the Arduino library
+# Make file for the core Arduino library
 
 CC = avr-gcc
 CXX = avr-g++
 
-BOARD_C_FLAGS ?= -mmcu=atmega328p -DF_CPU=16000000UL -DARDUINO=105
+BOARD_C_FLAGS = -mmcu=atmega328p -DF_CPU=16000000UL -DARDUINO=105
 LIB_C_FLAGS = $(BOARD_C_FLAGS) -Os -w
 
-ARDUINO_DIR ?= /usr/share/arduino
-ARDUINO_CORE ?= $(ARDUINO_DIR)/hardware/arduino/cores/arduino
+ARDUINO_DIR = /usr/share/arduino
+ARDUINO_CORE = $(ARDUINO_DIR)/hardware/arduino/cores/arduino
 BOARD_VARIANT = standard
-ARDUINO_VARIANT ?= $(ARDUINO_DIR)/hardware/arduino/variants/$(BOARD_VARIANT)
+ARDUINO_VARIANT = $(ARDUINO_DIR)/hardware/arduino/variants/$(BOARD_VARIANT)
 
-VPATH = $(ARDUINO_CORE):$(ARDUINO_CORE)/avr-libc:$(ARDUINO_VARIANT)
+VPATH = $(ARDUINO_CORE) $(ARDUINO_CORE)/avr-libc $(ARDUINO_VARIANT)
 
 INCLUDES = -I $(ARDUINO_CORE) -I $(ARDUINO_CORE)/avr-libc -I $(ARDUINO_VARIANT)
 

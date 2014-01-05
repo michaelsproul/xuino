@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import argparse
+
+from collections import OrderedDict
+
+def read_boards(arduino_root):
+	"Parse boards.txt and return a dictionary."
+	boards = {}
+
+	filepath = os.path.join(arduino_root, "hardware/arduino/boards.txt")
+	f = open(filepath, "r")
+	for line in f:
+		if line[0] in "\n#":
+			continue
+
+		(key, value) = line.strip().split("=")
+		key = key.split(".")
+		board = key[0]
+		property = ".".join(key[1:])
+		if board not in boards:
+			boards[board] = {}
+		boards[board][property] = value
+
+	f.close()
+	return boards
+
+
+def read_config():
+	"Read imp config from ~/.imprc"
+	config = {"arduino_root": "/usr/share/arduino"}
+	return config["arduino_root"]
+
+
+## Commands ##
+
+def init(args):
+	"Create a new project from the makefile template."
+	proj_root = os.path.abspath(args.dir)
+	name = input("Project name: ")
+	board = input("Board: ")
+	proj_dir = os.path.join(proj_root, name)
+
+
+def list_boards(args):
+	"List all available boards from boards.txt"
+	boards = read_boards(read_config())
+	boards = OrderedDict(sorted(boards.items(), key=lambda x: x[0].lower()))
+	for board in boards:
+		space = "\t\t" if len(board) < 8 else "\t"
+		print("%s%s'%s'" % (board, space, boards[board]["name"]))
+
+
+def get_property(args):
+	boards = read_boards(read_config())
+	key = args.prop.split(".")
+	board = key[0]
+	subprop = ".".join(key[1:])
+	print(boards[board][subprop])
+
+def get_cflags(args):
+	boards = read_boards(read_config())
+	board_info = boards[args.board]
+	cflags = "-mmcu=%(build.mcu)s -DF_CPU=%(build.f_cpu)s" % board_info
+	print(cflags)
+
+def get_srcdirs(args):
+	print("get srcdirs, yo")
+
+def get_libdirs(args):
+	print("get libraries, yo")
+
+def help(args):
+	print("Arrrgh, help me!")
+
+class CustomParser(argparse.ArgumentParser):
+	def error(self, message):
+		self.print_help()
+		print("\nerror: %s" % message)
+		sys.exit(1)
+
+def setup_argparser():
+	# Top level parser
+	parser = CustomParser(prog="imp")
+	subparsers = parser.add_subparsers(dest="command")
+
+	# Help strings
+	help_init = "Create a new Arduino project"
+	help_idir = "The directory in which to create the new project"
+	help_list = "List all available boards"
+	help_get = "Get compiler flags, compiled libraries, etc"
+	help_gprop = "Get board properties from boards.txt"
+	help_prop = "The name of the property as it appears in boards.txt, " \
+		    "e.g. atmega328.build.f_cpu"
+	help_board = "The short name of your Arduino board.\n" \
+		     "Run `imp list` for a list."
+	help_cflags = "Get the compiler flags for a specific board"
+
+	# Parser for `imp init`
+	init_parser = subparsers.add_parser("init", help=help_init)
+	init_parser.add_argument("dir", nargs="?", default=".", help=help_idir)
+	init_parser.set_defaults(func=init)
+
+	# Parser for `imp list`
+	list_parser = subparsers.add_parser("list", help=help_list)
+	list_parser.set_defaults(func=list_boards)
+
+	# Parser for `imp get`
+	get_parser = subparsers.add_parser("get", help=help_get)
+	get_subparsers = get_parser.add_subparsers()
+
+	# Parser for `imp get property`
+	property_parser = get_subparsers.add_parser("property", help=help_gprop)
+	property_parser.add_argument("property", help=help_prop)
+	property_parser.set_defaults(func=get_property)
+
+	# Parser for `imp get cflags`
+	cflags_parser = get_subparsers.add_parser("cflags", help=help_cflags)
+	cflags_parser.add_argument("board", help=help_board)
+	cflags_parser.set_defaults(func=get_cflags)
+
+	# Parser for `imp get srcdirs`
+	srcdir_parser = get_subparsers.add_parser("srcdirs",
+		help="Get the location(s) of library source code")
+	srcdir_parser.set_defaults(func=get_srcdirs)
+
+	# Parser for `imp get libdirs`
+	libdirs_parser = get_subparsers.add_parser("libdirs",
+		help="Get the location(s) of compiled libraries")
+	libdirs_parser.set_defaults(func=get_libdirs)
+
+	return parser
+
+def main():
+	parser = setup_argparser()
+	args = parser.parse_args()
+
+	# If a valid command has been given, execute it
+	if hasattr(args, "func"):
+		args.func(args)
+
+	# If a subcommand has been given without arguments, display help
+	elif False and args.command is not None:
+		parser.parse_args([args.command, "--help"])
+
+	# If no command is given, display general help
+	else:
+		parser.print_help()
+
+
+if __name__ == "__main__":
+	main()
