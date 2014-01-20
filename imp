@@ -2,14 +2,24 @@
 
 import os
 import sys
+import glob
 import argparse
+import subprocess
+import configparser
 
-from collections import OrderedDict
+config = {}
 
-def read_boards(arduino_root):
-	"Parse boards.txt and return a dictionary."
+# Find the imp installation directory
+imp_root = sys.modules[__name__].__file__
+imp_root = os.path.realpath(imp_root)
+imp_root = os.path.dirname(imp_root)
+
+os.environ["PATH"] += ":" + imp_root
+
+def read_boards():
+	"""Parse boards.txt and return a dictionary."""
 	boards = {}
-
+	arduino_root = config['arduino_root']
 	filepath = os.path.join(arduino_root, "hardware/arduino/boards.txt")
 	f = open(filepath, "r")
 	for line in f:
@@ -29,15 +39,44 @@ def read_boards(arduino_root):
 
 
 def read_config():
-	"Read imp config from ~/.imprc"
-	config = {"arduino_root": "/usr/share/arduino"}
-	return config["arduino_root"]
+	"""Read imp config from ~/.imprc and .imp
+
+	Values in .imp override those in ~/.imprc
+	"""
+	parser = configparser.ConfigParser()
+
+	# Load defaults
+	defaults = {"imp": {	"arduino_root": "/usr/share/arduino",
+				"arduino_ver": "105",
+				"compile_root": "~/.imp/"
+	}}
+	parser.read_dict(defaults)
+
+	# Read ~/.imprc
+	imprc = os.path.expanduser("~/.imprc")
+	if os.path.exists(imprc):
+		parser.read(imprc)
+
+	# Read .imp
+	dotimp = os.path.abspath(".imp")
+	if os.path.exists(dotimp):
+		parser.read(dotimp)
+
+	config = dict(parser["imp"])
+
+	# Expand paths
+	config["arduino_root"] = os.path.expanduser(config["arduino_root"])
+	config["compile_root"] = os.path.expanduser(config["compile_root"])
+
+	return config
 
 
-## Commands ##
+# ------------ #
+#   Commands   #
+# ------------ #
 
 def init(args):
-	"Create a new project from the makefile template."
+	"""Create a new project from the makefile template."""
 	proj_root = os.path.abspath(args.dir)
 	name = input("Project name: ")
 	board = input("Board: ")
@@ -45,109 +84,337 @@ def init(args):
 
 
 def list_boards(args):
-	"List all available boards from boards.txt"
-	boards = read_boards(read_config())
-	boards = OrderedDict(sorted(boards.items(), key=lambda x: x[0].lower()))
-	for board in boards:
-		space = "\t\t" if len(board) < 8 else "\t"
-		print("%s%s'%s'" % (board, space, boards[board]["name"]))
+	"""List all available boards from boards.txt"""
+	boards = read_boards()
+	_list_boards(boards)
+
+
+def _list_boards(boards):
+	"""Pretty print a list of boards, in alphabetical order."""
+	board_names = sorted(boards.keys(), key=lambda x: x.lower())
+	for board in board_names:
+		spacer = "\t\t" if len(board) < 8 else "\t"
+		print("%s%s'%s'" % (board, spacer, boards[board]["name"]))
 
 
 def get_property(args):
-	boards = read_boards(read_config())
-	key = args.prop.split(".")
+	"""Print the board property requested on the command-line.
+
+	A property is just a bit of information from the Arduino library's
+	store of hardware specific information, "boards.txt".
+
+	Through Imp, the names from "boards.txt" are split into a
+	board name and a "property".
+
+	Example:
+	If the board is "atmega328" and property is "build.f_cpu"
+	the value of "atmega328.build.f_cpu" will be fetched.
+	"""
+	boards = read_boards()
+	key = args.property.split(".")
 	board = key[0]
 	subprop = ".".join(key[1:])
 	print(boards[board][subprop])
 
+
 def get_cflags(args):
-	boards = read_boards(read_config())
-	board_info = boards[args.board]
-	cflags = "-mmcu=%(build.mcu)s -DF_CPU=%(build.f_cpu)s" % board_info
+	"""Print the C compiler flags required for a given board."""
+	boards = read_boards()
+	cflags = _get_cflags(args.board, boards)
 	print(cflags)
 
-def get_srcdirs(args):
-	print("get srcdirs, yo")
 
-def get_libdirs(args):
-	print("get libraries, yo")
+def _get_cflags(board, boards):
+	board_info = boards[board]
+	flags = "-mmcu=%(build.mcu)s -DF_CPU=%(build.f_cpu)s" % board_info
+	flags += " -DARDUINO=%s" % config["arduino_ver"]
+	return flags
 
-def help(args):
-	print("Arrrgh, help me!")
+
+def get_src(args):
+	"""Print a list of source directories for the requested libraries.
+
+	The list items can optionally be separated by -I to form a string
+	suitable for appending to GCC.
+	"""
+	# If the board argument is provided, read boards.txt to get variant
+	if args.board:
+		boards = read_boards()
+		variant = boards[args.board]["build.variant"]
+	else:
+		variant = "standard"
+
+	libraries = args.libraries
+
+	# Remove pseudo-library "core" from libraries. Core code is auto-added
+	if "core" in libraries:
+		libraries.remove("core")
+
+	# Fetch the source code directories
+	src_dirs = _get_src(libraries, variant)
+
+	if args.dash_i:
+		output = "-I " + " -I ".join(src_dirs)
+	else:
+		output = " ".join(src_dirs)
+
+	print(output)
+
+
+def _get_src(libraries, variant, include_core=True):
+	"""Return a list of directories containing relevant source code.
+
+	By relevant source code, we mean source code for the core library
+	and for those libraries listed in the `libraries' argument (a list).
+
+	The "variant" is the type of Arduino board to compile for.
+	Most boards are just "standard".
+	"""
+	src_dirs = []
+	root = config["arduino_root"]
+
+	# Add core library
+	if include_core:
+		core = os.path.join(root, "hardware/arduino/cores/arduino")
+		libc = os.path.join(core, "avr-libc")
+		var_dir = os.path.join(root, "hardware/arduino/variants/%s" % variant)
+		src_dirs.extend([core, libc, var_dir])
+
+	# Add requested libraries
+	for lib in libraries:
+		if lib == "core":
+			continue
+		lib_main = os.path.join(root, "libraries/%s" % lib)
+		src_dirs.append(lib_main)
+
+		lib_util = os.path.join(lib_main, "utility")
+		if os.path.exists(lib_util):
+			src_dirs.append(lib_util)
+
+	return src_dirs
+
+
+def get_obj(args):
+	"""Print the names of all the .o files for a given library."""
+	library = args.library
+
+	# Convert the library name into a list of directories
+	if library == "core":
+		# XXX: This takes advantage of the fact that the variant
+		# folders only include headers. Might need to be updated.
+		library_dirs = _get_src([], "standard", include_core=True)
+	else:
+		library_dirs = _get_src([args.library], "n/a", include_core=False)
+
+	objects = _get_obj(library_dirs)
+	print(" ".join(objects))
+
+
+def _get_obj(library_dirs):
+	"""Get the names of all the .o files in the given directories."""
+	# Filter functions, to turn source filepaths into object filenames
+	c_filter = lambda x: x.split("/")[-1].replace(".c", ".o")
+	cpp_filter = lambda x: x.split("/")[-1].replace(".cpp", ".o")
+
+	# Find objects for each directory in the input
+	objects = []
+	for directory in library_dirs:
+		c_files = glob.glob("%s/*.c" % directory)
+		objects.extend([c_filter(x) for x in c_files])
+		cpp_files = glob.glob("%s/*.cpp" % directory)
+		objects.extend([cpp_filter(x) for x in cpp_files])
+
+	return objects
+
+
+def get_lib(args):
+	"""Print a list of folders containing the requested libraries, compiled.
+
+	The libraries are either compiled from scratch or fetched from the
+	cache that accumulates in config['compile_root'].
+	"""
+	boards = read_boards()
+	board = args.board
+	libraries = args.libraries
+
+	# Add the core library if it isn't present
+	if "core" not in libraries:
+		libraries.append("core")
+
+	# Make
+	library_list = _get_lib(libraries, board, boards)
+
+	print(" ".join(library_list))
+
+
+def _get_lib(libraries, board, boards):
+	"""Make each library in compile_root/board/library.
+
+	Return a list of directories containing compiled versions.
+	"""
+	# Set up environment variables for each make instance
+	env = {lib: {"LIBRARY": lib} for lib in libraries}
+
+	# Set up a dictionary of make processes
+	makes = {lib: None for lib in libraries}
+
+	# Set up the list of directories to return
+	library_list = []
+
+	# Set up common arguments
+	cflags = _get_cflags(board, boards)
+	variant = boards[board]["build.variant"]
+	core_src = _get_src([], variant, include_core=True)
+	core_obj = _get_obj(core_src)
+
+	for lib in env:
+		# Set common variables
+		env[lib]["BOARD"] = board
+		env[lib]["BOARD_C_FLAGS"] = cflags
+		env[lib]["PATH"] = os.environ["PATH"]
+
+		# Set library specific variables
+		lib_src = _get_src([lib], variant, include_core=False)
+		lib_obj = _get_obj(lib_src)
+		lib_src.extend(core_src)
+		env[lib]["SRC_DIRS"] = " ".join(lib_src)
+		env[lib]["INCLUDES"] = "-I" + " -I ".join(lib_src)
+		env[lib]["LIBOBJS"] = " ".join(lib_obj)
+
+		print(env[lib])
+
+		# Set up the compilation directory
+		compile_dir = os.path.join(config["compile_root"], "%s/%s" % (board, lib))
+		try:
+			os.makedirs(compile_dir, mode=0o0775, exist_ok=True)
+		except OSError:
+			pass
+		library_list.append(compile_dir)
+
+		# Find the makefile to use
+		makefile = os.path.join(imp_root, "libraries/%s.mk" % lib)
+		if not os.path.exists(makefile):
+			makefile = os.path.join(imp_root, "Library.mk")
+
+		make_args = ["make", "-f", makefile]
+		makes[lib] = subprocess.Popen(make_args, cwd=compile_dir, env=env[lib])
+
+	# Wait for make processes to finish
+	for lib in makes:
+		returncode = makes[lib].wait()
+		if returncode != 0:
+			return None
+
+	return library_list
+
+
+def make(args):
+	"""Make the project in the current directory, using its Makefile.
+
+	This function "pre-fills" all imp variables to avoid multiple calls.
+	"""
+	print("imp make, coming soon.")
+
 
 class CustomParser(argparse.ArgumentParser):
+	"""Argument parser that prints a help message upon erroring."""
 	def error(self, message):
 		self.print_help()
 		print("\nerror: %s" % message)
 		sys.exit(1)
 
+
 def setup_argparser():
 	# Top level parser
 	parser = CustomParser(prog="imp")
-	subparsers = parser.add_subparsers(dest="command")
+	subparsers = parser.add_subparsers()
 
 	# Help strings
-	help_init = "Create a new Arduino project"
-	help_idir = "The directory in which to create the new project"
-	help_list = "List all available boards"
-	help_get = "Get compiler flags, compiled libraries, etc"
-	help_gprop = "Get board properties from boards.txt"
-	help_prop = "The name of the property as it appears in boards.txt, " \
-		    "e.g. atmega328.build.f_cpu"
-	help_board = "The short name of your Arduino board.\n" \
-		     "Run `imp list` for a list."
-	help_cflags = "Get the compiler flags for a specific board"
+	h_init = "Create a new Arduino project"
+	h_init_dir = "The directory in which to create the new project"
+	h_list = "List all available boards"
+	h_make = "Make the project in the current directory, quickly."
+	h_get = "Get compiler flags, compiled libraries, etc"
+	h_gprop1= "Get board properties from boards.txt"
+	h_gprop2 = "The name of the property as it appears in boards.txt\n" \
+		  "E.g. atmega328.build.f_cpu"
+	h_board = "The short name of your Arduino board.\n" \
+		  "Run `imp list` for a list."
+	h_cflags = "Get the compiler flags for a specific board"
+	h_src = "Get a list of directories containing library source code."
+	h_src_libs = "A list of libraries to get source directories for."
+	h_dash_i = "Add a -I before each directory (see gcc's -I option)."
+
+	h_obj = "Get the names of all the .o files for a library."
+	h_obj_lib = "The name of the library."
+
+	h_lib = "Get the location(s) of compiled libraries"
+	h_lib_libs = "A list of libraries to obtain compiled version of."
+	h_dash_l = "Add a -L before each directory (see gcc's -L option)."
+
 
 	# Parser for `imp init`
-	init_parser = subparsers.add_parser("init", help=help_init)
-	init_parser.add_argument("dir", nargs="?", default=".", help=help_idir)
+	init_parser = subparsers.add_parser("init", help=h_init)
+	init_parser.add_argument("dir", nargs="?", default=".", help=h_init_dir)
 	init_parser.set_defaults(func=init)
 
 	# Parser for `imp list`
-	list_parser = subparsers.add_parser("list", help=help_list)
+	list_parser = subparsers.add_parser("list", help=h_list)
 	list_parser.set_defaults(func=list_boards)
 
+	# Parser for `imp make`
+	make_parser = subparsers.add_parser("make", help=h_make)
+	make_parser.set_defaults(func=make)
+
 	# Parser for `imp get`
-	get_parser = subparsers.add_parser("get", help=help_get)
+	get_parser = subparsers.add_parser("get", help=h_get)
 	get_subparsers = get_parser.add_subparsers()
 
 	# Parser for `imp get property`
-	property_parser = get_subparsers.add_parser("property", help=help_gprop)
-	property_parser.add_argument("property", help=help_prop)
+	property_parser = get_subparsers.add_parser("property", help=h_gprop1)
+	property_parser.add_argument("property", help=h_gprop2)
 	property_parser.set_defaults(func=get_property)
 
 	# Parser for `imp get cflags`
-	cflags_parser = get_subparsers.add_parser("cflags", help=help_cflags)
-	cflags_parser.add_argument("board", help=help_board)
+	cflags_parser = get_subparsers.add_parser("cflags", help=h_cflags)
+	cflags_parser.add_argument("board", help=h_board)
 	cflags_parser.set_defaults(func=get_cflags)
 
-	# Parser for `imp get srcdirs`
-	srcdir_parser = get_subparsers.add_parser("srcdirs",
-		help="Get the location(s) of library source code")
-	srcdir_parser.set_defaults(func=get_srcdirs)
+	# Parser for `imp get src`
+	src_parser = get_subparsers.add_parser("src", help=h_src)
+	src_parser.add_argument("libraries", nargs="*", help=h_src_libs)
+	src_parser.add_argument("--board", default=None, help=h_board)
+	src_parser.add_argument("-I", dest="dash_i", action="store_true", help=h_dash_i)
+	src_parser.set_defaults(func=get_src)
 
-	# Parser for `imp get libdirs`
-	libdirs_parser = get_subparsers.add_parser("libdirs",
-		help="Get the location(s) of compiled libraries")
-	libdirs_parser.set_defaults(func=get_libdirs)
+	# Parser for `imp get obj`
+	obj_parser = get_subparsers.add_parser("obj", help=h_obj)
+	obj_parser.add_argument("library", help=h_obj_lib)
+	obj_parser.set_defaults(func=get_obj)
+
+	# Parser for `imp get lib`
+	lib_parser = get_subparsers.add_parser("lib", help=h_lib)
+	lib_parser.add_argument("libraries", nargs="*", help=h_lib_libs)
+	lib_parser.add_argument("--board", required=True, help=h_board)
+	lib_parser.add_argument("-L", dest="dash_l", action="store_true", help=h_dash_l)
+	lib_parser.set_defaults(func=get_lib)
 
 	return parser
 
 def main():
+	# Parse args
 	parser = setup_argparser()
 	args = parser.parse_args()
 
-	# If a valid command has been given, execute it
-	if hasattr(args, "func"):
-		args.func(args)
-
-	# If a subcommand has been given without arguments, display help
-	elif False and args.command is not None:
-		parser.parse_args([args.command, "--help"])
-
-	# If no command is given, display general help
-	else:
+	# If no command has been given, bail out
+	if not hasattr(args, "func"):
 		parser.print_help()
+		return
+
+	# Read config & execute the command
+	global config
+	config = read_config()
+	args.func(args)
 
 
 if __name__ == "__main__":
