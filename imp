@@ -7,6 +7,8 @@ import argparse
 import subprocess
 import configparser
 
+from libraries.dependencies import dependencies
+
 config = {}
 
 # Find the imp installation directory
@@ -90,7 +92,7 @@ def list_boards(args):
 
 
 def _list_boards(boards):
-	"""Pretty print a list of boards, in alphabetical order."""
+	"""Pretty print a list of boards in alphabetical order."""
 	board_names = sorted(boards.keys(), key=lambda x: x.lower())
 	for board in board_names:
 		spacer = "\t\t" if len(board) < 8 else "\t"
@@ -101,9 +103,9 @@ def get_property(args):
 	"""Print the board property requested on the command-line.
 
 	A property is just a bit of information from the Arduino library's
-	store of hardware specific information, "boards.txt".
+	collection of hardware specific information - "boards.txt".
 
-	Through Imp, the names from "boards.txt" are split into a
+	Throughout Imp, the names from "boards.txt" are split into a
 	board name and a "property".
 
 	Example:
@@ -118,13 +120,14 @@ def get_property(args):
 
 
 def get_cflags(args):
-	"""Print the C compiler flags required for a given board."""
+	"""Print the C compiler flags for the given board."""
 	boards = read_boards()
 	cflags = _get_cflags(args.board, boards)
 	print(cflags)
 
 
 def _get_cflags(board, boards):
+	"""Get the C compiler flags for the given board."""
 	board_info = boards[board]
 	flags = "-mmcu=%(build.mcu)s -DF_CPU=%(build.f_cpu)s" % board_info
 	flags += " -DARDUINO=%s" % config["arduino_ver"]
@@ -135,7 +138,7 @@ def get_src(args):
 	"""Print a list of source directories for the requested libraries.
 
 	The list items can optionally be separated by -I to form a string
-	suitable for appending to GCC.
+	suitable for appending to GCC. Dependencies not included.
 	"""
 	# If the board argument is provided, read boards.txt to get variant
 	if args.board:
@@ -144,11 +147,12 @@ def get_src(args):
 	else:
 		variant = "standard"
 
+	# Get the list of libraries
 	libraries = args.libraries
 
-	# Remove pseudo-library "core" from libraries. Core code is auto-added
-	if "core" in libraries:
-		libraries.remove("core")
+	# Automatically include the core library
+	if "core" not in libraries:
+		libraries.append("core")
 
 	# Fetch the source code directories
 	src_dirs = _get_src(libraries, variant)
@@ -161,29 +165,34 @@ def get_src(args):
 	print(output)
 
 
-def _get_src(libraries, variant, include_core=True):
+def _get_src(libraries, variant):
 	"""Return a list of directories containing relevant source code.
 
-	By relevant source code, we mean source code for the core library
-	and for those libraries listed in the `libraries' argument (a list).
+	By relevant source code, we mean source code for those libraries listed
+	in the `libraries' argument (a list). The core Arduino library is
+	not included unless "core" is amongst the list of libraries.
 
-	The "variant" is the type of Arduino board to compile for.
-	Most boards are just "standard".
+	If the core library is requested, "variant" is the type of
+	Arduino board to compile for. Most boards are just "standard".
 	"""
 	src_dirs = []
 	root = config["arduino_root"]
 
-	# Add core library
-	if include_core:
+	# Sub-function to get the core library
+	def get_core():
 		core = os.path.join(root, "hardware/arduino/cores/arduino")
 		libc = os.path.join(core, "avr-libc")
 		var_dir = os.path.join(root, "hardware/arduino/variants/%s" % variant)
-		src_dirs.extend([core, libc, var_dir])
+		return [core, libc, var_dir]
 
 	# Add requested libraries
 	for lib in libraries:
+		# Treat the core library carefully
 		if lib == "core":
+			src_dirs.extend(get_core())
 			continue
+
+		# Look in libraries/name otherwise
 		lib_main = os.path.join(root, "libraries/%s" % lib)
 		src_dirs.append(lib_main)
 
@@ -202,9 +211,9 @@ def get_obj(args):
 	if library == "core":
 		# XXX: This takes advantage of the fact that the variant
 		# folders only include headers. Might need to be updated.
-		library_dirs = _get_src([], "standard", include_core=True)
+		library_dirs = _get_src(["core"], "standard")
 	else:
-		library_dirs = _get_src([args.library], "n/a", include_core=False)
+		library_dirs = _get_src([args.library], "n/a")
 
 	objects = _get_obj(library_dirs)
 	print(" ".join(objects))
@@ -251,7 +260,21 @@ def _get_lib(libraries, board, boards):
 	"""Make each library in compile_root/board/library.
 
 	Return a list of directories containing compiled versions.
+	Dependecies are compiled and have their folders included.
 	"""
+	# Resolve dependencies (using sets & BFS style search)
+	active_pool = {lib for lib in libraries}
+	libraries = set()
+	while len(active_pool) > 0:
+		new_pool = set()
+		for lib in active_pool:
+			if lib in dependencies:
+				new_libs = dependencies[lib].difference(libraries)
+				new_libs = new_libs.difference(active_pool)
+				new_pool.update(new_libs)
+			libraries.add(lib)
+		active_pool = new_pool
+
 	# Set up environment variables for each make instance
 	env = {lib: {"LIBRARY": lib} for lib in libraries}
 
@@ -264,8 +287,7 @@ def _get_lib(libraries, board, boards):
 	# Set up common arguments
 	cflags = _get_cflags(board, boards)
 	variant = boards[board]["build.variant"]
-	core_src = _get_src([], variant, include_core=True)
-	core_obj = _get_obj(core_src)
+	core_src = _get_src(["core"], variant)
 
 	for lib in env:
 		# Set common variables
@@ -274,16 +296,25 @@ def _get_lib(libraries, board, boards):
 		env[lib]["PATH"] = os.environ["PATH"]
 
 		# Set library specific variables
-		lib_src = _get_src([lib], variant, include_core=False)
-		lib_obj = _get_obj(lib_src)
-		lib_src.extend(core_src)
+		if lib == "core":
+			lib_src = core_src
+			lib_obj = _get_obj(lib_src)
+		else:
+			# Add the main source folders for the library
+			lib_src = _get_src([lib], variant)
+			lib_obj = _get_obj(lib_src)
+			lib_src.extend(core_src)
+
+			# Include dependency source folders
+			if lib in dependencies:
+				dep_src = _get_src(dependencies[lib], "n/a")
+				lib_src.extend(dep_src)
+
 		env[lib]["SRC_DIRS"] = " ".join(lib_src)
 		env[lib]["INCLUDES"] = "-I" + " -I ".join(lib_src)
 		env[lib]["LIBOBJS"] = " ".join(lib_obj)
 
-		print(env[lib])
-
-		# Set up the compilation directory
+		# Set the compilation directory
 		compile_dir = os.path.join(config["compile_root"], "%s/%s" % (board, lib))
 		try:
 			os.makedirs(compile_dir, mode=0o0775, exist_ok=True)
@@ -296,14 +327,20 @@ def _get_lib(libraries, board, boards):
 		if not os.path.exists(makefile):
 			makefile = os.path.join(imp_root, "Library.mk")
 
+		# Run make in a subprocess
 		make_args = ["make", "-f", makefile]
 		makes[lib] = subprocess.Popen(make_args, cwd=compile_dir, env=env[lib])
 
 	# Wait for make processes to finish
+	error = False
 	for lib in makes:
 		returncode = makes[lib].wait()
 		if returncode != 0:
-			return None
+			error = True
+
+	if error:
+		print("Fatal error, unable to compile all libraries.")
+		sys.exit(1)
 
 	return library_list
 
