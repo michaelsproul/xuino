@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import re
 import sys
 import glob
 import argparse
@@ -374,7 +375,91 @@ def make(args):
 
 	This function "pre-fills" all imp variables to avoid multiple calls.
 	"""
-	print("imp make, coming soon.")
+	# Check for makefile existence
+	if not os.path.isfile("Makefile"):
+		print("No Makefile in the current directory.")
+		print("Run `imp init` to get one.")
+		sys.exit(1)
+
+	# Attempt to get the BOARD & LIBRARIES variables from the shell environment
+	board = None
+	libraries = None
+	if "BOARD" in os.environ:
+		board = os.environ["BOARD"]
+	if "LIBRARIES" in os.environ:
+		libraries = os.environ["LIBRARIES"]
+
+	# Otherwise read them from the makefile
+	if board is None or libraries is None:
+		makefile = open("Makefile", "r")
+		board_regex =  re.compile(r"^BOARD\s*=(?P<value>[^#]*).*$")
+		lib_regex = re.compile(r"^LIBRARIES\s*=(?P<value>[^#]*).*$")
+
+	while board is None or libraries is None:
+		line = makefile.readline()
+		if line == "":
+			print("Unable to extract BOARDS & LIBRARIES from makefile due to EOF.")
+			sys.exit(1)
+
+		if board is None:
+			match = board_regex.match(line)
+			if match:
+				board = match.group("value").strip()
+
+		if libraries is None:
+			match = lib_regex.match(line)
+			if match:
+				libraries = match.group("value").strip()
+				print("Libraries is: '%s'" % libraries)
+
+	# Turn libraries into a list
+	libraries = libraries.split(" ")
+
+	# If libraries is empty, make it the empty list
+	if libraries == [""]:
+		libraries = []
+
+	# Read boards.txt
+	boards = read_boards()
+
+	# Get the compiler flags
+	cflags = _get_cflags(board, boards)
+
+	# Get the source directories & header includes
+	variant = boards[board]["build.variant"]
+	libraries.append("core")
+	src_dirs = _get_src(libraries, variant)
+	header_includes = "-I " + " -I ".join(src_dirs)
+	src_dirs = " ".join(src_dirs)
+
+	# Make the libraries
+	print("Making libraries...")
+	lib_dirs, output = _get_lib(libraries, board, boards)
+
+	# Print make output, so the user knows what's going on
+	for lib in output:
+		print("-- Output from %s make command --" % lib)
+		print(output[lib])
+
+	# Make the full library include string
+	lib_includes = " -L " + " -L ".join(lib_dirs)
+	lib_names = [x.split("/")[-1].lower() for x in lib_dirs]
+	lib_includes += " -l" + " -l".join(lib_names)
+
+	# Make the actual project
+	env = { "BOARD_C_FLAGS": cflags,
+		"SRC_DIRS": src_dirs,
+		"HEADER_INCLUDES": header_includes,
+		"LIB_INCLUDES": lib_includes
+	}
+
+	make = subprocess.Popen(["make"], env=env)
+	returncode = make.wait()
+	if returncode == 0:
+		print("Success!")
+	else:
+		print("Oh no! Make failed :(")
+		sys.exit(1)
 
 
 class CustomParser(argparse.ArgumentParser):
