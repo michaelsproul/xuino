@@ -251,9 +251,24 @@ def get_lib(args):
 		libraries.append("core")
 
 	# Make
-	library_list = _get_lib(libraries, board, boards)
+	library_list, output = _get_lib(libraries, board, boards)
 
-	print(" ".join(library_list))
+	if args.verbose:
+		for lib in output:
+			print("-- Output from %s make command --" % lib)
+			print(output[lib])
+
+	if args.dash_big_l:
+		library_string = "-L " + " -L ".join(library_list)
+	else:
+		library_string = " ".join(library_list)
+
+	if args.dash_little_l:
+		# Extract library names (dependencies could have been added)
+		lib_names = [x.split("/")[-1].lower() for x in library_list]
+		library_string += " -l" + " -l".join(lib_names)
+
+	print(library_string)
 
 
 def _get_lib(libraries, board, boards):
@@ -329,20 +344,29 @@ def _get_lib(libraries, board, boards):
 
 		# Run make in a subprocess
 		make_args = ["make", "-f", makefile]
-		makes[lib] = subprocess.Popen(make_args, cwd=compile_dir, env=env[lib])
+		makes[lib] = subprocess.Popen(make_args, cwd=compile_dir, env=env[lib],
+						stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-	# Wait for make processes to finish
+	# Wait for make processes to finish and collect output
 	error = False
+	output = {}
 	for lib in makes:
 		returncode = makes[lib].wait()
+		stdout, stderr = makes[lib].communicate()
+		output[lib] = stdout.decode()
+
 		if returncode != 0:
 			error = True
+			output[lib] += stderr.decode()
 
 	if error:
+		for lib in output:
+			print("-- Output from %s make command --" % lib)
+			print(output[lib])
 		print("Fatal error, unable to compile all libraries.")
 		sys.exit(1)
 
-	return library_list
+	return (library_list, output)
 
 
 def make(args):
@@ -387,8 +411,9 @@ def setup_argparser():
 
 	h_lib = "Get the location(s) of compiled libraries"
 	h_lib_libs = "A list of libraries to obtain compiled version of."
-	h_dash_l = "Add a -L before each directory (see gcc's -L option)."
-
+	h_dash_big_l = "Add a -L before each directory (see gcc's -L option)."
+	h_dash_little_l = "Add a list of compiled archive names beginning with -l\n"\
+			  "For example: -lcore -lethernet -lspi"
 
 	# Parser for `imp init`
 	init_parser = subparsers.add_parser("init", help=h_init)
@@ -433,7 +458,10 @@ def setup_argparser():
 	lib_parser = get_subparsers.add_parser("lib", help=h_lib)
 	lib_parser.add_argument("libraries", nargs="*", help=h_lib_libs)
 	lib_parser.add_argument("--board", required=True, help=h_board)
-	lib_parser.add_argument("-L", dest="dash_l", action="store_true", help=h_dash_l)
+	lib_parser.add_argument("-L", dest="dash_big_l", action="store_true", help=h_dash_big_l)
+	lib_parser.add_argument("-l", dest="dash_little_l", action="store_true",
+								help=h_dash_little_l)
+	lib_parser.add_argument("-v", "--verbose", action="store_true")
 	lib_parser.set_defaults(func=get_lib)
 
 	return parser
