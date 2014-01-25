@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 
+"""Imp Arduino toolkit by Michael Sproul, Copyright 2014.
+Licensed under the terms of the GNU GPLv3+
+See: https://www.gnu.org/licenses/gpl.html
+"""
+
 import os
 import re
 import sys
@@ -79,11 +84,52 @@ def read_config():
 # ------------ #
 
 def init(args):
-	"""Create a new project from the makefile template."""
-	proj_root = os.path.abspath(args.dir)
-	name = input("Project name: ")
-	board = input("Board: ")
-	proj_dir = os.path.join(proj_root, name)
+	"""Create a new project makefile from the template.
+
+	The makefile will be created in the current directory, or the
+	directory specified by the `dir' argument to `imp init'.
+
+	The makefile will be named Makefile and will not be created if
+	a file with this name already exists.
+	"""
+	# Check for an existing Makefile
+	project_dir = os.path.abspath(args.dir)
+	makefile_path = os.path.join(project_dir, "Makefile")
+	if os.path.exists(makefile_path):
+		if args.dir == ".":
+			print("Error: Makefile exists!")
+		else:
+			print("Error: %s exists!" % makefile_path)
+		sys.exit(1)
+
+	# Read boards.txt
+	boards = read_boards()
+
+	# Request a project name
+	project = ""
+	while project == "":
+		project = input("Project name: ").strip()
+
+	# Request a board to compile for
+	print("Please select a board: ")
+	_list_boards(boards)
+	while True:
+		board = input("Board short name: ").strip()
+		if board in boards:
+			break
+		print("Invalid. Please pick a board (you can change later).")
+
+	# Inject the board and project name into the makefile template
+	template_path = os.path.join(imp_root, "Project.mk")
+	template_file = open(template_path, "r")
+	makefile = template_file.read()
+	makefile = makefile.replace("{PROJECT}", project).replace("{BOARD}", board)
+
+	# Write the makefile
+	with open(makefile_path, "w") as file:
+		file.write(makefile)
+
+	print("Successfully created a new makefile.")
 
 
 def list_boards(args):
@@ -390,6 +436,7 @@ def make(args):
 		libraries = os.environ["LIBRARIES"]
 
 	# Otherwise read them from the makefile
+	makefile = None
 	if board is None or libraries is None:
 		makefile = open("Makefile", "r")
 		board_regex =  re.compile(r"^BOARD\s*=(?P<value>[^#]*).*$")
@@ -411,6 +458,8 @@ def make(args):
 			if match:
 				libraries = match.group("value").strip()
 				print("Libraries is: '%s'" % libraries)
+	if makefile is not None:
+		makefile.close()
 
 	# Turn libraries into a list
 	libraries = libraries.split(" ")
