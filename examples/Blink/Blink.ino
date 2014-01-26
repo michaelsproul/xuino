@@ -4,7 +4,7 @@
 
 #define name(x) ((x == 1) ? "ON" : "OFF")
 
-int STATES[] = {1, 0, 1, 1, 0};
+int STATES[] = {0, 1, 0, 1, 1};
 int counter = 0;
 
 void setup()

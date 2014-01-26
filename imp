@@ -14,6 +14,7 @@ import subprocess
 import configparser
 
 from libraries.dependencies import dependencies
+from libraries.dependencies import math_libs
 
 config = {}
 
@@ -312,7 +313,18 @@ def get_lib(args):
 
 	if args.dash_little_l:
 		# Extract library names (dependencies could have been added)
-		lib_names = [x.split("/")[-1].lower() for x in library_list]
+		lib_names = [x.split("/")[-1] for x in library_list]
+
+		# Add the math library, if required
+		for lib in lib_names:
+			if lib in math_libs:
+				lib_names.append("m")
+				break
+
+		# Lowercase all library names to match the archives
+		lib_names = [lib.lower() for lib in lib_names]
+
+		# Create the library string
 		library_string += " -l" + " -l".join(lib_names)
 
 	print(library_string)
@@ -457,7 +469,6 @@ def make(args):
 			match = lib_regex.match(line)
 			if match:
 				libraries = match.group("value").strip()
-				print("Libraries is: '%s'" % libraries)
 	if makefile is not None:
 		makefile.close()
 
@@ -499,8 +510,10 @@ def make(args):
 	env = { "BOARD_C_FLAGS": cflags,
 		"SRC_DIRS": src_dirs,
 		"HEADER_INCLUDES": header_includes,
-		"LIB_INCLUDES": lib_includes
+		"LIB_INCLUDES": lib_includes,
+		"PATH": os.environ["PATH"]
 	}
+	# XXX: Should we pass all of os.environ?
 
 	make = subprocess.Popen(["make"], env=env)
 	returncode = make.wait()

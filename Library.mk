@@ -7,7 +7,7 @@ CC = avr-gcc
 CXX = avr-g++
 
 BOARD_C_FLAGS ?= $(shell imp get cflags $(BOARD))
-C_FLAGS = $(BOARD_C_FLAGS) -Os -w
+C_FLAGS = $(BOARD_C_FLAGS) -Os -w -ffunction-sections -fdata-sections
 
 SRC_DIRS ?= $(shell imp get src $(LIBRARY) $(DEPENDENCIES) --board $(BOARD))
 INCLUDES ?= $(shell imp get src $(LIBRARY) $(DEPENDENCIES) -I --board $(BOARD))
