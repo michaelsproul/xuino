@@ -13,7 +13,7 @@ import argparse
 import subprocess
 import configparser
 
-from dependencies import dependency_map
+from squid.dependencies import dependency_map
 
 config = {}
 
