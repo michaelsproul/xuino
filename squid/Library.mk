@@ -1,5 +1,5 @@
 # Generic makefile for both core and non-core Arduino libraries
-# Defined externally: BOARD, LIBRARY, DEPENDENCIES
+# Defined externally: BOARD, LIBRARY
 # To make the core library, use LIBRARY = core
 # DEPENDENCIES should be a space separated list of library names.
 
@@ -9,8 +9,8 @@ CXX = avr-g++
 BOARD_C_FLAGS ?= $(shell imp get cflags $(BOARD))
 C_FLAGS = $(BOARD_C_FLAGS) -Os -w -ffunction-sections -fdata-sections
 
-SRC_DIRS ?= $(shell imp get src $(LIBRARY) $(DEPENDENCIES) --board $(BOARD))
-INCLUDES ?= $(shell imp get src $(LIBRARY) $(DEPENDENCIES) -I --board $(BOARD))
+SRC_DIRS ?= $(shell imp get src $(LIBRARY) --board $(BOARD))
+INCLUDES ?= $(shell imp get src $(LIBRARY) --board $(BOARD) -I)
 
 VPATH = $(SRC_DIRS)
 

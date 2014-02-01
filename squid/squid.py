@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
+#/usr/bin/env python3
 
-"""Imp Arduino toolkit by Michael Sproul, Copyright 2014.
+"""Squid Arduino toolkit by Michael Sproul, Copyright 2014.
 Licensed under the terms of the GNU GPLv3+
 See: https://www.gnu.org/licenses/gpl.html
 """
@@ -13,23 +13,85 @@ import argparse
 import subprocess
 import configparser
 
-from libraries.dependencies import dependencies
-from libraries.dependencies import math_libs
+from dependencies import dependency_map
 
 config = {}
 
-# Find the imp installation directory
-imp_root = sys.modules[__name__].__file__
-imp_root = os.path.realpath(imp_root)
-imp_root = os.path.dirname(imp_root)
+# Find the squid installation directory
+squid_root = sys.modules[__name__].__file__
+squid_root = os.path.realpath(squid_root)
+squid_root = os.path.dirname(squid_root)
 
-os.environ["PATH"] += ":" + imp_root
+os.environ["PATH"] += ":" + squid_root
+
+def read_config():
+	"""Read squid config from ~/.squidrc and .squid
+
+	Values in .squid override those in ~/.squidrc
+	"""
+	parser = configparser.ConfigParser()
+
+	# Load defaults
+	defaults = {"squid": {	"arduino_root": "/usr/share/arduino",
+				"arduino_ver": "",
+				"compile_root": "~/.squid/"
+	}}
+	parser.read_dict(defaults)
+
+	# Read ~/.squidrc
+	squidrc = os.path.expanduser("~/.squidrc")
+	if os.path.exists(squidrc):
+		parser.read(squidrc)
+
+	# Read .squid
+	dotsquid = os.path.abspath(".squid")
+	if os.path.exists(dotsquid):
+		parser.read(dotsquid)
+
+	config = dict(parser["squid"])
+
+	# Expand paths
+	config["arduino_root"] = os.path.expanduser(config["arduino_root"])
+	config["compile_root"] = os.path.expanduser(config["compile_root"])
+
+	# Figure out software version
+	if config["arduino_ver"] == "":
+		config["arduino_ver"] = read_arduino_ver(config["arduino_root"])
+	else:
+		# Convert the version to an integer
+		config["arduino_ver"] = int(config["arduino_ver"].replace(".", ""))
+
+	return config
+
+
+def read_arduino_ver(arduino_root):
+	"""Extract the Arduino software version from the given root directory."""
+	version_path = os.path.join(arduino_root, "lib", "version.txt")
+	if not os.path.isfile(version_path):
+		print("Unable to find version.txt, please specify version in ~/.squidc or .squid")
+		sys.exit(1)
+
+	with open(version_path, "r") as version_file:
+		version = version_file.read().strip()
+	try:
+		version = int(version.replace(".", ""))
+		return version
+	except ValueError:
+		print("Unable to parse version number, please specify version in ~/.squidrc or .squid")
+		sys.exit(1)
+
 
 def read_boards():
 	"""Parse boards.txt and return a dictionary."""
 	boards = {}
 	arduino_root = config['arduino_root']
-	filepath = os.path.join(arduino_root, "hardware/arduino/boards.txt")
+	arduino_ver = config['arduino_ver']
+
+	if arduino_ver < 150:
+		filepath = "hardware/arduino/boards.txt"
+	else:
+		filepath = "hardware/arduino/avr/boards.txt"
+	filepath = os.path.join(arduino_root, filepath)
 	f = open(filepath, "r")
 	for line in f:
 		if line[0] in "\n#":
@@ -47,48 +109,15 @@ def read_boards():
 	return boards
 
 
-def read_config():
-	"""Read imp config from ~/.imprc and .imp
-
-	Values in .imp override those in ~/.imprc
-	"""
-	parser = configparser.ConfigParser()
-
-	# Load defaults
-	defaults = {"imp": {	"arduino_root": "/usr/share/arduino",
-				"arduino_ver": "105",
-				"compile_root": "~/.imp/"
-	}}
-	parser.read_dict(defaults)
-
-	# Read ~/.imprc
-	imprc = os.path.expanduser("~/.imprc")
-	if os.path.exists(imprc):
-		parser.read(imprc)
-
-	# Read .imp
-	dotimp = os.path.abspath(".imp")
-	if os.path.exists(dotimp):
-		parser.read(dotimp)
-
-	config = dict(parser["imp"])
-
-	# Expand paths
-	config["arduino_root"] = os.path.expanduser(config["arduino_root"])
-	config["compile_root"] = os.path.expanduser(config["compile_root"])
-
-	return config
-
-
-# ------------ #
-#   Commands   #
-# ------------ #
+# ----------------------------------------------------- #
+#			Commands			#
+# ----------------------------------------------------- #
 
 def init(args):
 	"""Create a new project makefile from the template.
 
 	The makefile will be created in the current directory, or the
-	directory specified by the `dir' argument to `imp init'.
+	directory specified by the `dir' argument to `squid init'.
 
 	The makefile will be named Makefile and will not be created if
 	a file with this name already exists.
@@ -121,7 +150,7 @@ def init(args):
 		print("Invalid. Please pick a board (you can change later).")
 
 	# Inject the board and project name into the makefile template
-	template_path = os.path.join(imp_root, "Project.mk")
+	template_path = os.path.join(squid_root, "Project.mk")
 	template_file = open(template_path, "r")
 	makefile = template_file.read()
 	makefile = makefile.replace("{PROJECT}", project).replace("{BOARD}", board)
@@ -229,9 +258,9 @@ def _get_src(libraries, variant):
 	# Sub-function to get the core library
 	def get_core():
 		core = os.path.join(root, "hardware/arduino/cores/arduino")
-		libc = os.path.join(core, "avr-libc")
+		core_sub_dirs = glob.glob("%s/*/" % core)
 		var_dir = os.path.join(root, "hardware/arduino/variants/%s" % variant)
-		return [core, libc, var_dir]
+		return core_sub_dirs + [core, var_dir]
 
 	# Add requested libraries
 	for lib in libraries:
@@ -282,6 +311,65 @@ def _get_obj(library_dirs):
 		objects.extend([cpp_filter(x) for x in cpp_files])
 
 	return objects
+
+
+def resolve_dependencies(libraries):
+	"""Given a list of libraries, determine all of their dependencies.
+
+	Return a list of the original libraries, plus their dependencies, ordered
+	such that each library comes before all of its dependencies (a topological sort).
+	"""
+	# For each library store out-links (to dependencies) and in-links (from dependencies)
+	graph = {}
+	active_pool = {lib for lib in libraries}
+	while len(active_pool) > 0:
+		new_pool = set()
+		for lib in active_pool:
+			# Fetch the set of dependencies
+			if lib in dependency_map:
+				dependencies = dependency_map[lib]
+			else:
+				dependencies = set()
+
+			# Add the implicit dependency on the core library
+			if lib != "core" and lib != "math":
+				dependencies.add("core")
+
+			# Add the library to the graph
+			if lib in graph:
+				graph[lib]["out"] = dependencies
+			else:
+				graph[lib] = {"in": set(), "out": dependencies}
+
+			# Add each dependency to the graph and the active pool if need be
+			for dep in dependencies:
+				if dep in graph:
+					graph[dep]["in"].add(lib)
+				else:
+					graph[dep] = {"in": {lib}, "out": set()}
+					new_pool.add(dep)
+		active_pool = new_pool
+
+	# Perform a topological sort on the graph
+	library_list = []
+	no_inlinks = {node for node in graph if len(graph[node]["in"]) == 0}
+	while len(no_inlinks) > 0:
+		node = no_inlinks.pop()
+		library_list.append(node)
+
+		# Remove it from the graph
+		for dep in graph[node]["out"]:
+			graph[dep]["in"].remove(node)
+			if len(graph[dep]["in"]) == 0:
+				no_inlinks.add(dep)
+		del graph[node]
+
+	# Check for success
+	if len(graph) == 0:
+		return library_list
+	else:
+		print("Error: Cyclic dependencies!")
+		sys.exit(1)
 
 
 def get_lib(args):
@@ -397,9 +485,9 @@ def _get_lib(libraries, board, boards):
 		library_list.append(compile_dir)
 
 		# Find the makefile to use
-		makefile = os.path.join(imp_root, "libraries/%s.mk" % lib)
+		makefile = os.path.join(squid_root, "libraries/%s.mk" % lib)
 		if not os.path.exists(makefile):
-			makefile = os.path.join(imp_root, "Library.mk")
+			makefile = os.path.join(squid_root, "Library.mk")
 
 		# Run make in a subprocess
 		make_args = ["make", "-f", makefile]
@@ -431,12 +519,12 @@ def _get_lib(libraries, board, boards):
 def make(args):
 	"""Make the project in the current directory, using its Makefile.
 
-	This function "pre-fills" all imp variables to avoid multiple calls.
+	This function "pre-fills" all squid variables to avoid multiple calls.
 	"""
 	# Check for makefile existence
 	if not os.path.isfile("Makefile"):
 		print("No Makefile in the current directory.")
-		print("Run `imp init` to get one.")
+		print("Run `squid init` to get one.")
 		sys.exit(1)
 
 	# Attempt to get the BOARD & LIBRARIES variables from the shell environment
@@ -534,7 +622,7 @@ class CustomParser(argparse.ArgumentParser):
 
 def setup_argparser():
 	# Top level parser
-	parser = CustomParser(prog="imp")
+	parser = CustomParser(prog="squid")
 	subparsers = parser.add_subparsers()
 
 	# Help strings
@@ -547,7 +635,7 @@ def setup_argparser():
 	h_gprop2 = "The name of the property as it appears in boards.txt\n" \
 		  "E.g. atmega328.build.f_cpu"
 	h_board = "The short name of your Arduino board.\n" \
-		  "Run `imp list` for a list."
+		  "Run `squid list` for a list."
 	h_cflags = "Get the compiler flags for a specific board"
 	h_src = "Get a list of directories containing library source code."
 	h_src_libs = "A list of libraries to get source directories for."
@@ -562,46 +650,46 @@ def setup_argparser():
 	h_dash_little_l = "Add a list of compiled archive names beginning with -l\n"\
 			  "For example: -lcore -lethernet -lspi"
 
-	# Parser for `imp init`
+	# Parser for `squid init`
 	init_parser = subparsers.add_parser("init", help=h_init)
 	init_parser.add_argument("dir", nargs="?", default=".", help=h_init_dir)
 	init_parser.set_defaults(func=init)
 
-	# Parser for `imp list`
+	# Parser for `squid list`
 	list_parser = subparsers.add_parser("list", help=h_list)
 	list_parser.set_defaults(func=list_boards)
 
-	# Parser for `imp make`
+	# Parser for `squid make`
 	make_parser = subparsers.add_parser("make", help=h_make)
 	make_parser.set_defaults(func=make)
 
-	# Parser for `imp get`
+	# Parser for `squid get`
 	get_parser = subparsers.add_parser("get", help=h_get)
 	get_subparsers = get_parser.add_subparsers()
 
-	# Parser for `imp get property`
+	# Parser for `squid get property`
 	property_parser = get_subparsers.add_parser("property", help=h_gprop1)
 	property_parser.add_argument("property", help=h_gprop2)
 	property_parser.set_defaults(func=get_property)
 
-	# Parser for `imp get cflags`
+	# Parser for `squid get cflags`
 	cflags_parser = get_subparsers.add_parser("cflags", help=h_cflags)
 	cflags_parser.add_argument("board", help=h_board)
 	cflags_parser.set_defaults(func=get_cflags)
 
-	# Parser for `imp get src`
+	# Parser for `squid get src`
 	src_parser = get_subparsers.add_parser("src", help=h_src)
 	src_parser.add_argument("libraries", nargs="*", help=h_src_libs)
 	src_parser.add_argument("--board", default=None, help=h_board)
 	src_parser.add_argument("-I", dest="dash_i", action="store_true", help=h_dash_i)
 	src_parser.set_defaults(func=get_src)
 
-	# Parser for `imp get obj`
+	# Parser for `squid get obj`
 	obj_parser = get_subparsers.add_parser("obj", help=h_obj)
 	obj_parser.add_argument("library", help=h_obj_lib)
 	obj_parser.set_defaults(func=get_obj)
 
-	# Parser for `imp get lib`
+	# Parser for `squid get lib`
 	lib_parser = get_subparsers.add_parser("lib", help=h_lib)
 	lib_parser.add_argument("libraries", nargs="*", help=h_lib_libs)
 	lib_parser.add_argument("--board", required=True, help=h_board)
