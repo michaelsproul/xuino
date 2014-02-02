@@ -6,15 +6,15 @@
 CC = avr-gcc
 CXX = avr-g++
 
-BOARD_C_FLAGS ?= $(shell imp get cflags $(BOARD))
+BOARD_C_FLAGS ?= $(shell squid get cflags $(BOARD))
 C_FLAGS = $(BOARD_C_FLAGS) -Os -w -ffunction-sections -fdata-sections
 
-SRC_DIRS ?= $(shell imp get src $(LIBRARY) --board $(BOARD))
-INCLUDES ?= $(shell imp get src $(LIBRARY) --board $(BOARD) -I)
+SRC_DIRS ?= $(shell squid get src $(LIBRARY) --board $(BOARD))
+INCLUDES ?= $(shell squid get src $(LIBRARY) --board $(BOARD) -I)
 
 VPATH = $(SRC_DIRS)
 
-LIBOBJS ?= $(shell imp get obj $(LIBRARY))
+LIBOBJS ?= $(shell squid get obj $(LIBRARY))
 
 # Use the lowercased library name for the archive
 LIBARCHIVE ?= lib$(shell echo $(LIBRARY) | tr '[:upper:]' '[:lower:]').a

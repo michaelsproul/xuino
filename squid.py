@@ -1,6 +1,9 @@
-#/usr/bin/env python3
+#!/usr/bin/env python3
 
 """Squid Arduino toolkit by Michael Sproul, Copyright 2014.
+
+Github: https://github.com/gnusouth/squid
+
 Licensed under the terms of the GNU GPLv3+
 See: https://www.gnu.org/licenses/gpl.html
 """
@@ -9,20 +12,40 @@ import os
 import re
 import sys
 import glob
+import shutil
 import argparse
 import subprocess
 import configparser
 
-from squid.dependencies import dependency_map
-
-config = {}
-
-# Find the squid installation directory
+# Find the Squid installation directory
 squid_root = sys.modules[__name__].__file__
 squid_root = os.path.realpath(squid_root)
 squid_root = os.path.dirname(squid_root)
 
-os.environ["PATH"] += ":" + squid_root
+# Import the dependencies file
+dependencies_file = os.path.join(squid_root, "dependencies.py")
+from importlib.machinery import SourceFileLoader
+dependencies = SourceFileLoader("squid.dependencies", dependencies_file).load_module()
+
+dependency_map = dependencies.dependency_map
+
+# Main configuration object (initialised later, depending on context)
+config = {}
+
+# The math library's name
+math_library = "m"
+
+# The commands beginning with an underscore are called when this file is run
+# as a stand-alone executable. The non-underscored versions are the ones that
+# take sensible arguments and do all of the actual work.
+
+def _error(message):
+	"""Quit the program if running interactively, or raise an exception otherwise."""
+	if __name__ == "__main__":
+		print("Error: " + message)
+		sys.exit(1)
+	raise Exception(message)
+
 
 def read_config():
 	"""Read squid config from ~/.squidrc and .squid
@@ -36,6 +59,7 @@ def read_config():
 				"arduino_ver": "",
 				"compile_root": "~/.squid/"
 	}}
+
 	parser.read_dict(defaults)
 
 	# Read ~/.squidrc
@@ -67,18 +91,22 @@ def read_config():
 def read_arduino_ver(arduino_root):
 	"""Extract the Arduino software version from the given root directory."""
 	version_path = os.path.join(arduino_root, "lib", "version.txt")
+
 	if not os.path.isfile(version_path):
-		print("Unable to find version.txt, please specify version in ~/.squidc or .squid")
-		sys.exit(1)
+		m = """Unable to find version.txt
+		       Please explicity specify a version in ~/.squidrc or .squid"""
+		_error(m)
 
 	with open(version_path, "r") as version_file:
 		version = version_file.read().strip()
+
 	try:
 		version = int(version.replace(".", ""))
 		return version
 	except ValueError:
-		print("Unable to parse version number, please specify version in ~/.squidrc or .squid")
-		sys.exit(1)
+		m = """Unable to parse version number.
+		       Please explicitly specify a version in ~/.squidrc or .squid"""
+		_error(m)
 
 
 def read_boards():
@@ -92,28 +120,24 @@ def read_boards():
 	else:
 		filepath = "hardware/arduino/avr/boards.txt"
 	filepath = os.path.join(arduino_root, filepath)
-	f = open(filepath, "r")
-	for line in f:
-		if line[0] in "\n#":
-			continue
 
-		(key, value) = line.strip().split("=")
-		key = key.split(".")
-		board = key[0]
-		property = ".".join(key[1:])
-		if board not in boards:
-			boards[board] = {}
-		boards[board][property] = value
+	with open(filepath, "r") as f:
+		for line in f:
+			if line[0] in "\n#":
+				continue
 
-	f.close()
+			(key, value) = line.strip().split("=")
+			key = key.split(".")
+			board = key[0]
+			property = ".".join(key[1:])
+			if board not in boards:
+				boards[board] = {}
+			boards[board][property] = value
+
 	return boards
 
 
-# ----------------------------------------------------- #
-#			Commands			#
-# ----------------------------------------------------- #
-
-def init(args):
+def _init(args):
 	"""Create a new project makefile from the template.
 
 	The makefile will be created in the current directory, or the
@@ -122,15 +146,16 @@ def init(args):
 	The makefile will be named Makefile and will not be created if
 	a file with this name already exists.
 	"""
-	# Check for an existing Makefile
 	project_dir = os.path.abspath(args.dir)
+
+	# Check for an existing Makefile
 	makefile_path = os.path.join(project_dir, "Makefile")
 	if os.path.exists(makefile_path):
 		if args.dir == ".":
-			print("Error: Makefile exists!")
+			message = "Makefile exists!"
 		else:
-			print("Error: %s exists!" % makefile_path)
-		sys.exit(1)
+			message = "%s exists!" % makefile_path
+		_error(message)
 
 	# Read boards.txt
 	boards = read_boards()
@@ -142,33 +167,52 @@ def init(args):
 
 	# Request a board to compile for
 	print("Please select a board: ")
-	_list_boards(boards)
+	list_boards(boards)
 	while True:
 		board = input("Board short name: ").strip()
 		if board in boards:
 			break
 		print("Invalid. Please pick a board (you can change later).")
 
-	# Inject the board and project name into the makefile template
-	template_path = os.path.join(squid_root, "Project.mk")
-	template_file = open(template_path, "r")
-	makefile = template_file.read()
-	makefile = makefile.replace("{PROJECT}", project).replace("{BOARD}", board)
+	# Request dependent libraries
+	print("If your project has dependent libraries, list them here (space separated).")
+	libraries = input("Libraries: ")
+
+	# Inject everything into the makefile template
+	template_path = os.path.join(squid_root, "makefiles", "Project.mk")
+	with open(template_path, "r") as template_file:
+		makefile = template_file.read()
+
+	makefile = makefile.replace("{PROJECT}", project)
+	makefile = makefile.replace("{BOARD}", board)
+	makefile = makefile.replace("{LIBRARIES}", libraries)
 
 	# Write the makefile
-	with open(makefile_path, "w") as file:
-		file.write(makefile)
+	with open(makefile_path, "w") as f:
+		f.write(makefile)
 
 	print("Successfully created a new makefile.")
 
 
-def list_boards(args):
+def _clean(args):
+	clean()
+
+
+def clean():
+	"""Remove everything from the cache of compiled library code.
+
+	This function just deletes config["compile_dir"].
+	"""
+	shutil.rmtree(config["compile_root"])
+
+
+def _list_boards(args):
 	"""List all available boards from boards.txt"""
 	boards = read_boards()
-	_list_boards(boards)
+	list_boards(boards)
 
 
-def _list_boards(boards):
+def list_boards(boards):
 	"""Pretty print a list of boards in alphabetical order."""
 	board_names = sorted(boards.keys(), key=lambda x: x.lower())
 	for board in board_names:
@@ -176,7 +220,7 @@ def _list_boards(boards):
 		print("%s%s'%s'" % (board, spacer, boards[board]["name"]))
 
 
-def get_property(args):
+def _get_property(args):
 	"""Print the board property requested on the command-line.
 
 	A property is just a bit of information from the Arduino library's
@@ -196,26 +240,32 @@ def get_property(args):
 	print(boards[board][subprop])
 
 
-def get_cflags(args):
-	"""Print the C compiler flags for the given board."""
+def _get_cflags(args):
+	"""Command-line front-end for get_cflags."""
 	boards = read_boards()
-	cflags = _get_cflags(args.board, boards)
+	cflags = get_cflags(args.board, boards)
 	print(cflags)
 
 
-def _get_cflags(board, boards):
-	"""Get the C compiler flags for the given board."""
+def get_cflags(board, boards):
+	"""Get the C compiler flags for the given board.
+
+	The flags returned are of the form:
+		-mmcu=<mcu> -DF_CPU=<cpu freq> -DARDUINO=<version>
+	"""
 	board_info = boards[board]
 	flags = "-mmcu=%(build.mcu)s -DF_CPU=%(build.f_cpu)s" % board_info
 	flags += " -DARDUINO=%s" % config["arduino_ver"]
 	return flags
 
 
-def get_src(args):
+def _get_src(args):
 	"""Print a list of source directories for the requested libraries.
 
-	The list items can optionally be separated by -I to form a string
-	suitable for appending to GCC. Dependencies not included.
+	This is a front-end to get_src that also resolves dependencies.
+
+	The source directories can optionally be separated by -I to form a string
+	suitable for appending to GCC.
 	"""
 	# If the board argument is provided, read boards.txt to get variant
 	if args.board:
@@ -224,15 +274,11 @@ def get_src(args):
 	else:
 		variant = "standard"
 
-	# Get the list of libraries
-	libraries = args.libraries
-
-	# Automatically include the core library
-	if "core" not in libraries:
-		libraries.append("core")
+	# Get the list of libraries including dependencies
+	libraries = resolve_dependencies(args.libraries)
 
 	# Fetch the source code directories
-	src_dirs = _get_src(libraries, variant)
+	src_dirs = get_src(libraries, variant)
 
 	if args.dash_i:
 		output = "-I " + " -I ".join(src_dirs)
@@ -242,15 +288,17 @@ def get_src(args):
 	print(output)
 
 
-def _get_src(libraries, variant):
+def get_src(libraries, variant):
 	"""Return a list of directories containing relevant source code.
 
 	By relevant source code, we mean source code for those libraries listed
-	in the `libraries' argument (a list). The core Arduino library is
-	not included unless "core" is amongst the list of libraries.
+	in the `libraries' argument (a list). Dependencies are *not* included and
+	the core Arduino library is only included if "core" is in the list of libraries.
 
-	If the core library is requested, "variant" is the type of
+	If the core library is requested, `variant' is the type of
 	Arduino board to compile for. Most boards are just "standard".
+
+	An exception is thrown if the list contains non-existant libraries.
 	"""
 	src_dirs = []
 	root = config["arduino_root"]
@@ -269,8 +317,17 @@ def _get_src(libraries, variant):
 			src_dirs.extend(get_core())
 			continue
 
+		# Treat the math library carefully
+		if lib == math_library:
+			continue
+
 		# Look in libraries/name otherwise
-		lib_main = os.path.join(root, "libraries/%s" % lib)
+		lib_main = os.path.join(root, "libraries", lib)
+
+		# Check for existence
+		if not os.path.isdir(lib_main):
+			_error("No library found for name '%s'" % lib)
+
 		src_dirs.append(lib_main)
 
 		lib_util = os.path.join(lib_main, "utility")
@@ -280,7 +337,7 @@ def _get_src(libraries, variant):
 	return src_dirs
 
 
-def get_obj(args):
+def _get_obj(args):
 	"""Print the names of all the .o files for a given library."""
 	library = args.library
 
@@ -288,15 +345,15 @@ def get_obj(args):
 	if library == "core":
 		# XXX: This takes advantage of the fact that the variant
 		# folders only include headers. Might need to be updated.
-		library_dirs = _get_src(["core"], "standard")
+		library_dirs = _get_src(["core"], "n/a")
 	else:
 		library_dirs = _get_src([args.library], "n/a")
 
-	objects = _get_obj(library_dirs)
+	objects = get_obj(library_dirs)
 	print(" ".join(objects))
 
 
-def _get_obj(library_dirs):
+def get_obj(library_dirs):
 	"""Get the names of all the .o files in the given directories."""
 	# Filter functions, to turn source filepaths into object filenames
 	c_filter = lambda x: x.split("/")[-1].replace(".c", ".o")
@@ -318,7 +375,14 @@ def resolve_dependencies(libraries):
 
 	Return a list of the original libraries, plus their dependencies, ordered
 	such that each library comes before all of its dependencies (a topological sort).
+
+	Dependencies are read from dependencies.py in the Squid installation directory.
 	"""
+	# If no libraries are required, just return the core library
+	if libraries == []:
+		return ["core"]
+
+	# Construct a dependency graph.
 	# For each library store out-links (to dependencies) and in-links (from dependencies)
 	graph = {}
 	active_pool = {lib for lib in libraries}
@@ -332,7 +396,7 @@ def resolve_dependencies(libraries):
 				dependencies = set()
 
 			# Add the implicit dependency on the core library
-			if lib != "core" and lib != "math":
+			if lib != "core" and lib != math_library:
 				dependencies.add("core")
 
 			# Add the library to the graph
@@ -368,49 +432,40 @@ def resolve_dependencies(libraries):
 	if len(graph) == 0:
 		return library_list
 	else:
-		print("Error: Cyclic dependencies!")
-		sys.exit(1)
+		_error("Cyclic dependencies!")
 
 
-def get_lib(args):
-	"""Print a list of folders containing the requested libraries, compiled.
+def _get_lib(args):
+	"""Print a list of directories containing compiled versions of the given libraries.
 
-	The libraries are either compiled from scratch or fetched from the
-	cache that accumulates in config['compile_root'].
+	Dependencies *are* resolved.
 	"""
 	boards = read_boards()
 	board = args.board
 	libraries = args.libraries
 
-	# Add the core library if it isn't present
-	if "core" not in libraries:
-		libraries.append("core")
+	# Resolve dependencies
+	libraries = resolve_dependencies(libraries)
 
-	# Make
-	library_list, output = _get_lib(libraries, board, boards)
+	# Make the libraries
+	library_list, output = get_lib(libraries, board, boards)
 
+	# Print make output if desired
 	if args.verbose:
 		for lib in output:
 			print("-- Output from %s make command --" % lib)
 			print(output[lib])
 
+	# Create the output string, with appropriate separators
 	if args.dash_big_l:
 		library_string = "-L " + " -L ".join(library_list)
 	else:
 		library_string = " ".join(library_list)
 
+	# Optionally append the library names preceded by -l
 	if args.dash_little_l:
-		# Extract library names (dependencies could have been added)
-		lib_names = [x.split("/")[-1] for x in library_list]
-
-		# Add the math library, if required
-		for lib in lib_names:
-			if lib in math_libs:
-				lib_names.append("m")
-				break
-
-		# Lowercase all library names to match the archives
-		lib_names = [lib.lower() for lib in lib_names]
+		# Extract the library names from the directory list
+		lib_names = [x.split("/")[-1].lower() for x in library_list]
 
 		# Create the library string
 		library_string += " -l" + " -l".join(lib_names)
@@ -418,76 +473,58 @@ def get_lib(args):
 	print(library_string)
 
 
-def _get_lib(libraries, board, boards):
-	"""Make each library in compile_root/board/library.
+def get_lib(libraries, board, boards):
+	"""Return a list of directories containing compiled versions of the given libraries.
 
-	Return a list of directories containing compiled versions.
-	Dependecies are compiled and have their folders included.
+	The output list is ordered identically to the input list. This preserves
+	dependency-related ordering, if there is any.
+
+	This function itself does *not* resolve dependencies
 	"""
-	# Resolve dependencies (using sets & BFS style search)
-	active_pool = {lib for lib in libraries}
-	libraries = set()
-	while len(active_pool) > 0:
-		new_pool = set()
-		for lib in active_pool:
-			if lib in dependencies:
-				new_libs = dependencies[lib].difference(libraries)
-				new_libs = new_libs.difference(active_pool)
-				new_pool.update(new_libs)
-			libraries.add(lib)
-		active_pool = new_pool
-
 	# Set up environment variables for each make instance
 	env = {lib: {"LIBRARY": lib} for lib in libraries}
 
 	# Set up a dictionary of make processes
-	makes = {lib: None for lib in libraries}
+	makes = {}
 
-	# Set up the list of directories to return
-	library_list = []
+	# Set up a dictionary of compilation directories
+	compile_dirs = {lib: os.path.join(config["compile_root"], board, lib) for lib in libraries}
 
 	# Set up common arguments
-	cflags = _get_cflags(board, boards)
+	cflags = get_cflags(board, boards)
 	variant = boards[board]["build.variant"]
-	core_src = _get_src(["core"], variant)
+	all_src = get_src(libraries, variant)
 
 	for lib in env:
+		# No need to make the math library
+		if lib == math_library:
+			continue
+
 		# Set common variables
 		env[lib]["BOARD"] = board
 		env[lib]["BOARD_C_FLAGS"] = cflags
 		env[lib]["PATH"] = os.environ["PATH"]
 
 		# Set library specific variables
-		if lib == "core":
-			lib_src = core_src
-			lib_obj = _get_obj(lib_src)
-		else:
-			# Add the main source folders for the library
-			lib_src = _get_src([lib], variant)
-			lib_obj = _get_obj(lib_src)
-			lib_src.extend(core_src)
+		lib_src = get_src([lib], variant)
+		lib_obj = get_obj(lib_src)
 
-			# Include dependency source folders
-			if lib in dependencies:
-				dep_src = _get_src(dependencies[lib], "n/a")
-				lib_src.extend(dep_src)
-
-		env[lib]["SRC_DIRS"] = " ".join(lib_src)
-		env[lib]["INCLUDES"] = "-I" + " -I ".join(lib_src)
+		# XXX: Bit hackish; include all src directories when building...
+		env[lib]["SRC_DIRS"] = " ".join(all_src)
+		env[lib]["INCLUDES"] = "-I" + " -I ".join(all_src)
 		env[lib]["LIBOBJS"] = " ".join(lib_obj)
 
 		# Set the compilation directory
-		compile_dir = os.path.join(config["compile_root"], "%s/%s" % (board, lib))
+		compile_dir = compile_dirs[lib]
 		try:
 			os.makedirs(compile_dir, mode=0o0775, exist_ok=True)
 		except OSError:
 			pass
-		library_list.append(compile_dir)
 
 		# Find the makefile to use
-		makefile = os.path.join(squid_root, "libraries/%s.mk" % lib)
+		makefile = os.path.join(squid_root, "makefiles", "libraries", "%s.mk" % lib)
 		if not os.path.exists(makefile):
-			makefile = os.path.join(squid_root, "Library.mk")
+			makefile = os.path.join(squid_root, "makefiles", "Library.mk")
 
 		# Run make in a subprocess
 		make_args = ["make", "-f", makefile]
@@ -510,22 +547,25 @@ def _get_lib(libraries, board, boards):
 		for lib in output:
 			print("-- Output from %s make command --" % lib)
 			print(output[lib])
-		print("Fatal error, unable to compile all libraries.")
-		sys.exit(1)
+		_error("Fatal error, unable to compile all libraries.")
 
+	library_list = [compile_dirs[lib] for lib in libraries]
 	return (library_list, output)
 
 
-def make(args):
+def make(args="unused"):
 	"""Make the project in the current directory, using its Makefile.
 
-	This function "pre-fills" all squid variables to avoid multiple calls.
+	This function "pre-fills" all squid variables to avoid multiple calls and
+	provides more helpful diagnostic output than a plain `make`.
+
+	If you've altered your makefile drastically this isn't guaranteed to work.
 	"""
 	# Check for makefile existence
 	if not os.path.isfile("Makefile"):
-		print("No Makefile in the current directory.")
-		print("Run `squid init` to get one.")
-		sys.exit(1)
+		m = """No Makefile in the current directory.
+		       Run `squid init` to get one."""
+		_error(m)
 
 	# Attempt to get the BOARD & LIBRARIES variables from the shell environment
 	board = None
@@ -545,8 +585,7 @@ def make(args):
 	while board is None or libraries is None:
 		line = makefile.readline()
 		if line == "":
-			print("Unable to extract BOARDS & LIBRARIES from makefile due to EOF.")
-			sys.exit(1)
+			_error("Unable to extract BOARDS & LIBRARIES from makefile due to EOF.")
 
 		if board is None:
 			match = board_regex.match(line)
@@ -557,8 +596,16 @@ def make(args):
 			match = lib_regex.match(line)
 			if match:
 				libraries = match.group("value").strip()
+
 	if makefile is not None:
 		makefile.close()
+
+	# Read boards.txt
+	boards = read_boards()
+
+	# Check that the board is valid
+	if board not in boards:
+		_error("Board not found '{}'".format(board))
 
 	# Turn libraries into a list
 	libraries = libraries.split(" ")
@@ -567,29 +614,29 @@ def make(args):
 	if libraries == [""]:
 		libraries = []
 
-	# Read boards.txt
-	boards = read_boards()
+	# Resolve dependencies
+	libraries = resolve_dependencies(libraries)
+
 
 	# Get the compiler flags
-	cflags = _get_cflags(board, boards)
+	cflags = get_cflags(board, boards)
 
 	# Get the source directories & header includes
 	variant = boards[board]["build.variant"]
-	libraries.append("core")
-	src_dirs = _get_src(libraries, variant)
+	src_dirs = get_src(libraries, variant)
 	header_includes = "-I " + " -I ".join(src_dirs)
 	src_dirs = " ".join(src_dirs)
 
 	# Make the libraries
 	print("Making libraries...")
-	lib_dirs, output = _get_lib(libraries, board, boards)
+	lib_dirs, output = get_lib(libraries, board, boards)
 
 	# Print make output, so the user knows what's going on
 	for lib in output:
 		print("-- Output from %s make command --" % lib)
 		print(output[lib])
 
-	# Make the full library include string
+	# Create the full library include string
 	lib_includes = " -L " + " -L ".join(lib_dirs)
 	lib_names = [x.split("/")[-1].lower() for x in lib_dirs]
 	lib_includes += " -l" + " -l".join(lib_names)
@@ -608,35 +655,35 @@ def make(args):
 	if returncode == 0:
 		print("Success!")
 	else:
-		print("Oh no! Make failed :(")
-		sys.exit(1)
+		_error("Oh no! Make failed :(")
 
 
-class CustomParser(argparse.ArgumentParser):
-	"""Argument parser that prints a help message upon erroring."""
-	def error(self, message):
-		self.print_help()
-		print("\nerror: %s" % message)
-		sys.exit(1)
+def _setup_argparser():
+	"""Create the command-line argument parser for Squid."""
+	# Subclass the standard argument parser to provide more helpful error messages
+	class ArgumentParser(argparse.ArgumentParser):
+		def error(self, message):
+			self.print_help()
+			print("\nError: %s" % message)
+			sys.exit(1)
 
-
-def setup_argparser():
 	# Top level parser
-	parser = CustomParser(prog="squid")
+	parser = ArgumentParser(prog="squid")
 	subparsers = parser.add_subparsers()
 
 	# Help strings
-	h_init = "Create a new Arduino project"
-	h_init_dir = "The directory in which to create the new project"
-	h_list = "List all available boards"
-	h_make = "Make the project in the current directory, quickly."
-	h_get = "Get compiler flags, compiled libraries, etc"
-	h_gprop1= "Get board properties from boards.txt"
+	h_init = "Create a new Arduino project."
+	h_init_dir = "The directory in which to create the new project."
+	h_clean = "Clearout the cache of compiled library code."
+	h_list = "List all available boards."
+	h_make = "Make the project in the current directory (verbosely)."
+	h_get = "Get compiler flags, compiled libraries, etc."
+	h_gprop1= "Get a board property from boards.txt"
 	h_gprop2 = "The name of the property as it appears in boards.txt\n" \
 		  "E.g. atmega328.build.f_cpu"
 	h_board = "The short name of your Arduino board.\n" \
 		  "Run `squid list` for a list."
-	h_cflags = "Get the compiler flags for a specific board"
+	h_cflags = "Get the compiler flags for a specific board."
 	h_src = "Get a list of directories containing library source code."
 	h_src_libs = "A list of libraries to get source directories for."
 	h_dash_i = "Add a -I before each directory (see gcc's -I option)."
@@ -648,16 +695,20 @@ def setup_argparser():
 	h_lib_libs = "A list of libraries to obtain compiled version of."
 	h_dash_big_l = "Add a -L before each directory (see gcc's -L option)."
 	h_dash_little_l = "Add a list of compiled archive names beginning with -l\n"\
-			  "For example: -lcore -lethernet -lspi"
+			  "For example: -lethernet -lspi -lcore"
 
 	# Parser for `squid init`
 	init_parser = subparsers.add_parser("init", help=h_init)
 	init_parser.add_argument("dir", nargs="?", default=".", help=h_init_dir)
-	init_parser.set_defaults(func=init)
+	init_parser.set_defaults(func=_init)
+
+	# Parser for `squid clean`
+	clean_parser = subparsers.add_parser("clean", help=h_clean)
+	clean_parser.set_defaults(func=_clean)
 
 	# Parser for `squid list`
 	list_parser = subparsers.add_parser("list", help=h_list)
-	list_parser.set_defaults(func=list_boards)
+	list_parser.set_defaults(func=_list_boards)
 
 	# Parser for `squid make`
 	make_parser = subparsers.add_parser("make", help=h_make)
@@ -670,24 +721,24 @@ def setup_argparser():
 	# Parser for `squid get property`
 	property_parser = get_subparsers.add_parser("property", help=h_gprop1)
 	property_parser.add_argument("property", help=h_gprop2)
-	property_parser.set_defaults(func=get_property)
+	property_parser.set_defaults(func=_get_property)
 
 	# Parser for `squid get cflags`
 	cflags_parser = get_subparsers.add_parser("cflags", help=h_cflags)
 	cflags_parser.add_argument("board", help=h_board)
-	cflags_parser.set_defaults(func=get_cflags)
+	cflags_parser.set_defaults(func=_get_cflags)
 
 	# Parser for `squid get src`
 	src_parser = get_subparsers.add_parser("src", help=h_src)
 	src_parser.add_argument("libraries", nargs="*", help=h_src_libs)
 	src_parser.add_argument("--board", default=None, help=h_board)
 	src_parser.add_argument("-I", dest="dash_i", action="store_true", help=h_dash_i)
-	src_parser.set_defaults(func=get_src)
+	src_parser.set_defaults(func=_get_src)
 
 	# Parser for `squid get obj`
 	obj_parser = get_subparsers.add_parser("obj", help=h_obj)
 	obj_parser.add_argument("library", help=h_obj_lib)
-	obj_parser.set_defaults(func=get_obj)
+	obj_parser.set_defaults(func=_get_obj)
 
 	# Parser for `squid get lib`
 	lib_parser = get_subparsers.add_parser("lib", help=h_lib)
@@ -697,25 +748,23 @@ def setup_argparser():
 	lib_parser.add_argument("-l", dest="dash_little_l", action="store_true",
 								help=h_dash_little_l)
 	lib_parser.add_argument("-v", "--verbose", action="store_true")
-	lib_parser.set_defaults(func=get_lib)
+	lib_parser.set_defaults(func=_get_lib)
 
 	return parser
 
-def main():
+
+if __name__ == "__main__":
 	# Parse args
-	parser = setup_argparser()
+	parser = _setup_argparser()
 	args = parser.parse_args()
 
 	# If no command has been given, bail out
 	if not hasattr(args, "func"):
 		parser.print_help()
-		return
+		sys.exit(1)
 
 	# Read config & execute the command
-	global config
 	config = read_config()
 	args.func(args)
-
-
-if __name__ == "__main__":
-	main()
+else:
+	config = read_config()
