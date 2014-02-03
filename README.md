@@ -7,8 +7,7 @@ It facilitates the use of simple makefiles by handling the compilation of the Ar
 
 It was inspired by [Ino](https://github.com/amperka/ino) and runs on Linux & OS X.
 
-Installation
-============
+# Installation
 
 Before you dive into compiling Arduino code, make sure you've installed all of the following dependencies.
 
@@ -25,8 +24,7 @@ The package names may vary depending on your distribution. You might be able to 
 
 With that done, clone this git repository and run `sudo make install`. You can adjust Squid's installation directory by editing the Makefile.
 
-Getting Started
-===============
+# Getting Started
 
 To get a feel for how Squid works, lets compile a simple web server.
 
@@ -44,7 +42,7 @@ At the moment, this folder just contains standard Arduino code. Let's add a Squi
 squid init
 ```
 
-The `init` command creates a new makefile from the template at makefiles/Project.mk. It will ask you a few questions about the project you're setting up, and prefill some variables accordingly.
+The `init` command creates a new makefile from the template at [makefiles/Project.mk](https://github.com/gnusouth/squid/blob/master/makefiles/Project.mk). It will ask you a few questions about the project you're setting up, and prefill some variables accordingly.
 
 Answer the prompts as follows:
 
@@ -78,8 +76,7 @@ That's it!
 
 For more information see the [official Squid documentation](http://documentup.com/gnusouth/squid), run `squid --help` from a terminal or run `import squid; help(squid)` from a Python interpreter.
 
-Quick Commands
-==============
+# Quick Commands
 
 ```
 # Create a new makefile
@@ -101,24 +98,21 @@ picocom /dev/ttyUSB0 -b 9600
 squid clean
 ```
 
-Configuration
-=============
+# Configuration
 
 Squid reads global configuration from `~/.squidrc` and project-specific configuration from `.squid`.
 
 You can use configuration files to change things like your Arduino directory.
 
-See the example configuration file at `examples/config` for a full list of options.
+See the example configuration file at [examples/config](https://github.com/gnusouth/squid/blob/master/examples/config) for a full list of options.
 
-Contribute
-==========
+# Contribute
 
-If you like Squid, please help out! If you feel like writing documentation, adding features or reporting bugs, I'm more than happy to accept your [pull requests](https://help.github.com/articles/using-pull-requests). I'm planning to write some documentation on how it all works soon, because one of Squid's main aims is to promote education. You're invited to read the source code and give feedback. My hope is that Squid's source code is easy to understand, and as simply as possible.
+If you like Squid, please help out! If you feel like writing documentation, adding features or reporting bugs, I'm more than happy to accept your [pull requests](https://help.github.com/articles/using-pull-requests). I'm planning to write some documentation on how it all works soon because one of Squid's main aims is to promote education. You're invited to read the source code and give feedback. My hope is that Squid's source code is easy to understand, and as simply as possible.
 
 Thanks for stopping by!
 
-License
-=======
+# License
 
 Squid is Free Software licensed under the GNU GPLv3+
 
