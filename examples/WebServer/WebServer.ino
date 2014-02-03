@@ -5,7 +5,6 @@
  *
 */
 
-#include <SPI.h>
 #include <Ethernet.h>
 
 /* Ethernet device MAC address (modify this) */

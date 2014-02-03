@@ -110,7 +110,10 @@ def read_arduino_ver(arduino_root):
 
 
 def read_boards():
-	"""Parse boards.txt and return a dictionary."""
+	"""Parse boards.txt and return a dictionary.
+
+	The module-level `config' object is used to locate the file.
+	"""
 	boards = {}
 	arduino_root = config['arduino_root']
 	arduino_ver = config['arduino_ver']
@@ -479,7 +482,7 @@ def get_lib(libraries, board, boards):
 	The output list is ordered identically to the input list. This preserves
 	dependency-related ordering, if there is any.
 
-	This function itself does *not* resolve dependencies
+	This function itself does *not* resolve dependencies.
 	"""
 	# Set up environment variables for each make instance
 	env = {lib: {"LIBRARY": lib} for lib in libraries}

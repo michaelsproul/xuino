@@ -1,4 +1,2 @@
-# PyPI Stuff
-build
-dist
-*.egg-info
+# Documentation
+docs/_build
