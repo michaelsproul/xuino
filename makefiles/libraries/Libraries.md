@@ -1,4 +1,4 @@
-Squid | Libraries
+Xuino | Libraries
 =================
 
 The generic library makefile (Library.mk) should be able to compile most libraries, but if it can't, you can define a custom makefile in this directory.

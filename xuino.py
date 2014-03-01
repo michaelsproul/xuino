@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 
-"""Squid Arduino toolkit by Michael Sproul, Copyright 2014.
+"""Xuino Arduino toolkit by Michael Sproul, Copyright 2014.
 
-Github: https://github.com/gnusouth/squid
+Github: https://github.com/gnusouth/xuino
 
 Licensed under the terms of the GNU GPLv3+
 See: https://www.gnu.org/licenses/gpl.html
 """
+
+__version__ = "0.1a"
 
 import os
 import re
@@ -17,15 +19,15 @@ import argparse
 import subprocess
 import configparser
 
-# Find the Squid installation directory
-squid_root = sys.modules[__name__].__file__
-squid_root = os.path.realpath(squid_root)
-squid_root = os.path.dirname(squid_root)
+# Find the Xuino installation directory
+xuino_root = sys.modules[__name__].__file__
+xuino_root = os.path.realpath(xuino_root)
+xuino_root = os.path.dirname(xuino_root)
 
 # Import the dependencies file
-dependencies_file = os.path.join(squid_root, "dependencies.py")
+dependencies_file = os.path.join(xuino_root, "dependencies.py")
 from importlib.machinery import SourceFileLoader
-dependencies = SourceFileLoader("squid.dependencies", dependencies_file).load_module()
+dependencies = SourceFileLoader("xuino.dependencies", dependencies_file).load_module()
 
 dependency_map = dependencies.dependency_map
 
@@ -48,31 +50,31 @@ def _error(message):
 
 
 def read_config():
-	"""Read squid config from ~/.squidrc and .squid
+	"""Read xuino config from ~/.xuinorc and .xuino
 
-	Values in .squid override those in ~/.squidrc
+	Values in .xuino override those in ~/.xuinorc
 	"""
 	parser = configparser.ConfigParser()
 
 	# Load defaults
-	defaults = {"squid": {	"arduino_root": "/usr/share/arduino",
+	defaults = {"xuino": {	"arduino_root": "/usr/share/arduino",
 				"arduino_ver": "",
-				"compile_root": "~/.squid/"
+				"compile_root": "~/.xuino/"
 	}}
 
 	parser.read_dict(defaults)
 
-	# Read ~/.squidrc
-	squidrc = os.path.expanduser("~/.squidrc")
-	if os.path.exists(squidrc):
-		parser.read(squidrc)
+	# Read ~/.xuinorc
+	xuinorc = os.path.expanduser("~/.xuinorc")
+	if os.path.exists(xuinorc):
+		parser.read(xuinorc)
 
-	# Read .squid
-	dotsquid = os.path.abspath(".squid")
-	if os.path.exists(dotsquid):
-		parser.read(dotsquid)
+	# Read .xuino
+	dotxuino = os.path.abspath(".xuino")
+	if os.path.exists(dotxuino):
+		parser.read(dotxuino)
 
-	config = dict(parser["squid"])
+	config = dict(parser["xuino"])
 
 	# Expand paths
 	config["arduino_root"] = os.path.expanduser(config["arduino_root"])
@@ -94,7 +96,7 @@ def read_arduino_ver(arduino_root):
 
 	if not os.path.isfile(version_path):
 		m = """Unable to find version.txt
-		       Please explicity specify a version in ~/.squidrc or .squid"""
+		       Please explicity specify a version in ~/.xuinorc or .xuino"""
 		_error(m)
 
 	with open(version_path, "r") as version_file:
@@ -105,7 +107,7 @@ def read_arduino_ver(arduino_root):
 		return version
 	except ValueError:
 		m = """Unable to parse version number.
-		       Please explicitly specify a version in ~/.squidrc or .squid"""
+		       Please explicitly specify a version in ~/.xuinorc or .xuino"""
 		_error(m)
 
 
@@ -144,7 +146,7 @@ def _init(args):
 	"""Create a new project makefile from the template.
 
 	The makefile will be created in the current directory, or the
-	directory specified by the `dir' argument to `squid init'.
+	directory specified by the `dir' argument to `xuino init'.
 
 	The makefile will be named Makefile and will not be created if
 	a file with this name already exists.
@@ -182,7 +184,7 @@ def _init(args):
 	libraries = input("Libraries: ")
 
 	# Inject everything into the makefile template
-	template_path = os.path.join(squid_root, "makefiles", "Project.mk")
+	template_path = os.path.join(xuino_root, "makefiles", "Project.mk")
 	with open(template_path, "r") as template_file:
 		makefile = template_file.read()
 
@@ -379,7 +381,7 @@ def resolve_dependencies(libraries):
 	Return a list of the original libraries, plus their dependencies, ordered
 	such that each library comes before all of its dependencies (a topological sort).
 
-	Dependencies are read from dependencies.py in the Squid installation directory.
+	Dependencies are read from dependencies.py in the Xuino installation directory.
 	"""
 	# If no libraries are required, just return the core library
 	if libraries == []:
@@ -525,9 +527,9 @@ def get_lib(libraries, board, boards):
 			pass
 
 		# Find the makefile to use
-		makefile = os.path.join(squid_root, "makefiles", "libraries", "%s.mk" % lib)
+		makefile = os.path.join(xuino_root, "makefiles", "libraries", "%s.mk" % lib)
 		if not os.path.exists(makefile):
-			makefile = os.path.join(squid_root, "makefiles", "Library.mk")
+			makefile = os.path.join(xuino_root, "makefiles", "Library.mk")
 
 		# Run make in a subprocess
 		make_args = ["make", "-f", makefile]
@@ -559,7 +561,7 @@ def get_lib(libraries, board, boards):
 def make(args="unused"):
 	"""Make the project in the current directory, using its Makefile.
 
-	This function "pre-fills" all squid variables to avoid multiple calls and
+	This function "pre-fills" all xuino variables to avoid multiple calls and
 	provides more helpful diagnostic output than a plain `make`.
 
 	If you've altered your makefile drastically this isn't guaranteed to work.
@@ -567,7 +569,7 @@ def make(args="unused"):
 	# Check for makefile existence
 	if not os.path.isfile("Makefile"):
 		m = """No Makefile in the current directory.
-		       Run `squid init` to get one."""
+		       Run `xuino init` to get one."""
 		_error(m)
 
 	# Attempt to get the BOARD & LIBRARIES variables from the shell environment
@@ -662,7 +664,7 @@ def make(args="unused"):
 
 
 def _setup_argparser():
-	"""Create the command-line argument parser for Squid."""
+	"""Create the command-line argument parser for Xuino."""
 	# Subclass the standard argument parser to provide more helpful error messages
 	class ArgumentParser(argparse.ArgumentParser):
 		def error(self, message):
@@ -671,7 +673,7 @@ def _setup_argparser():
 			sys.exit(1)
 
 	# Top level parser
-	parser = ArgumentParser(prog="squid")
+	parser = ArgumentParser(prog="xuino")
 	subparsers = parser.add_subparsers()
 
 	# Help strings
@@ -685,7 +687,7 @@ def _setup_argparser():
 	h_gprop2 = "The name of the property as it appears in boards.txt\n" \
 		  "E.g. atmega328.build.f_cpu"
 	h_board = "The short name of your Arduino board.\n" \
-		  "Run `squid list` for a list."
+		  "Run `xuino list` for a list."
 	h_cflags = "Get the compiler flags for a specific board."
 	h_src = "Get a list of directories containing library source code."
 	h_src_libs = "A list of libraries to get source directories for."
@@ -700,50 +702,50 @@ def _setup_argparser():
 	h_dash_little_l = "Add a list of compiled archive names beginning with -l\n"\
 			  "For example: -lethernet -lspi -lcore"
 
-	# Parser for `squid init`
+	# Parser for `xuino init`
 	init_parser = subparsers.add_parser("init", help=h_init)
 	init_parser.add_argument("dir", nargs="?", default=".", help=h_init_dir)
 	init_parser.set_defaults(func=_init)
 
-	# Parser for `squid clean`
+	# Parser for `xuino clean`
 	clean_parser = subparsers.add_parser("clean", help=h_clean)
 	clean_parser.set_defaults(func=_clean)
 
-	# Parser for `squid list`
+	# Parser for `xuino list`
 	list_parser = subparsers.add_parser("list", help=h_list)
 	list_parser.set_defaults(func=_list_boards)
 
-	# Parser for `squid make`
+	# Parser for `xuino make`
 	make_parser = subparsers.add_parser("make", help=h_make)
 	make_parser.set_defaults(func=make)
 
-	# Parser for `squid get`
+	# Parser for `xuino get`
 	get_parser = subparsers.add_parser("get", help=h_get)
 	get_subparsers = get_parser.add_subparsers()
 
-	# Parser for `squid get property`
+	# Parser for `xuino get property`
 	property_parser = get_subparsers.add_parser("property", help=h_gprop1)
 	property_parser.add_argument("property", help=h_gprop2)
 	property_parser.set_defaults(func=_get_property)
 
-	# Parser for `squid get cflags`
+	# Parser for `xuino get cflags`
 	cflags_parser = get_subparsers.add_parser("cflags", help=h_cflags)
 	cflags_parser.add_argument("board", help=h_board)
 	cflags_parser.set_defaults(func=_get_cflags)
 
-	# Parser for `squid get src`
+	# Parser for `xuino get src`
 	src_parser = get_subparsers.add_parser("src", help=h_src)
 	src_parser.add_argument("libraries", nargs="*", help=h_src_libs)
 	src_parser.add_argument("--board", default=None, help=h_board)
 	src_parser.add_argument("-I", dest="dash_i", action="store_true", help=h_dash_i)
 	src_parser.set_defaults(func=_get_src)
 
-	# Parser for `squid get obj`
+	# Parser for `xuino get obj`
 	obj_parser = get_subparsers.add_parser("obj", help=h_obj)
 	obj_parser.add_argument("library", help=h_obj_lib)
 	obj_parser.set_defaults(func=_get_obj)
 
-	# Parser for `squid get lib`
+	# Parser for `xuino get lib`
 	lib_parser = get_subparsers.add_parser("lib", help=h_lib)
 	lib_parser.add_argument("libraries", nargs="*", help=h_lib_libs)
 	lib_parser.add_argument("--board", required=True, help=h_board)

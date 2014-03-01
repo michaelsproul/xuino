@@ -1,7 +1,7 @@
-Squid
+Xuino
 =====
 
-Squid is a command-line Arduino toolkit that aims to be simple & C-like.
+Xuino is a command-line Arduino toolkit that aims to be simple & C-like.
 
 It facilitates the use of simple makefiles by handling the compilation of the Arduino standard libraries.
 
@@ -22,11 +22,11 @@ Before you dive into compiling Arduino code, make sure you've installed all of t
 
 The package names may vary depending on your distribution. You might be able to install them all at once by installing an Arduino package.
 
-With that done, clone this git repository and run `sudo make install`. You can adjust Squid's installation directory by editing the Makefile.
+With that done, clone this git repository and run `sudo make install`. You can adjust Xuino's installation directory by editing the Makefile.
 
 # Getting Started
 
-To get a feel for how Squid works, lets compile a simple web server.
+To get a feel for how Xuino works, let's compile a simple web server.
 
 ## Setting Up
 
@@ -36,13 +36,13 @@ First up, grab an Arduino and plug it in via USB. Then, open a terminal in the W
 cd examples/WebServer
 ```
 
-At the moment, this folder just contains standard Arduino code. Let's add a Squid Makefile so we can compile it.
+At the moment, this folder just contains standard Arduino code. Let's add a Xuino Makefile so we can compile it.
 
 ```
-squid init
+xuino init
 ```
 
-The `init` command creates a new makefile from the template at [makefiles/Project.mk](https://github.com/gnusouth/squid/blob/master/makefiles/Project.mk). It will ask you a few questions about the project you're setting up, and prefill some variables accordingly.
+The `init` command creates a new makefile from the template at [makefiles/Project.mk](https://github.com/gnusouth/xuino/blob/master/makefiles/Project.mk). It will ask you a few questions about the project you're setting up, and prefill some variables accordingly.
 
 Answer the prompts as follows:
 
@@ -52,14 +52,14 @@ Board short name: <your board name>
 Libraries: Ethernet
 ```
 
-Now your WebServer directory should contain two files; WebServer.ino and Makefile. Open up the Makefile to have a look around. Notice in particular how the main executable, $(PROJECT).hex depends on a list of object files. If you're working on a project with lots of source files you can control exactly which ones to compile. Also notice how lots of the variables are filled by calls to `squid`. You could make your project right now simply by running `make`!
+Now your WebServer directory should contain two files; WebServer.ino and Makefile. Open up the Makefile to have a look around. Notice in particular how the main executable, $(PROJECT).hex depends on a list of object files. If you're working on a project with lots of source files you can control exactly which ones to compile. Also notice how lots of the variables are filled by calls to `xuino`. You could make your project right now simply by running `make`!
 
 ## Compiling
 
-Although it's possible to make your project with just plain `make`, Squid also provides a make command that provides better diagnostic output (and is a tiny bit faster).
+Although it's possible to make your project with just plain `make`, Xuino also provides a make command that provides better diagnostic output (and is a tiny bit faster).
 
 ```
-squid make
+xuino make
 ```
 
 Notice how the SPI library was compiled & linked automatically due to the Ethernet library's dependency on it!
@@ -74,16 +74,16 @@ If you have trouble uploading you may need to manually set the serial port. You 
 
 That's it!
 
-For more information see the [official Squid documentation](http://documentup.com/gnusouth/squid), run `squid --help` from a terminal or run `import squid; help(squid)` from a Python interpreter.
+For more information see the [official Xuino documentation](http://documentup.com/gnusouth/xuino), run `xuino --help` from a terminal or run `import xuino; help(xuino)` from a Python interpreter.
 
 # Quick Commands
 
 ```
 # Create a new makefile
-squid init
+xuino init
 
 # Build a project
-squid make
+xuino make
 
 # Upload a project
 make upload
@@ -95,25 +95,25 @@ make serial
 picocom /dev/ttyUSB0 -b 9600
 
 # Flush out the compiled library cache
-squid clean
+xuino clean
 ```
 
 # Configuration
 
-Squid reads global configuration from `~/.squidrc` and project-specific configuration from `.squid`.
+Xuino reads global configuration from `~/.xuinorc` and project-specific configuration from `.xuino`.
 
 You can use configuration files to change things like your Arduino directory.
 
-See the example configuration file at [examples/config](https://github.com/gnusouth/squid/blob/master/examples/config) for a full list of options.
+See the example configuration file at [examples/config](https://github.com/gnusouth/xuino/blob/master/examples/config) for a full list of options.
 
 # Contribute
 
-If you like Squid, please help out! If you feel like writing documentation, adding features or reporting bugs, I'm more than happy to accept your [pull requests](https://help.github.com/articles/using-pull-requests). I'm planning to write some documentation on how it all works soon because one of Squid's main aims is to promote education. You're invited to read the source code and give feedback. My hope is that Squid's source code is easy to understand, and as simply as possible.
+If you like Xuino, please help out! If you feel like writing documentation, adding features or reporting bugs, I'm more than happy to accept your [pull requests](https://help.github.com/articles/using-pull-requests). I'm planning to write some documentation on how it all works soon because one of Xuino's main aims is to promote education. You're invited to read the source code and give feedback. My hope is that Xuino's source code is easy to understand, and as simply as possible.
 
 Thanks for stopping by!
 
 # License
 
-Squid is Free Software licensed under the GNU GPLv3+
+Xuino is Free Software licensed under the GNU GPLv3+
 
 &copy; Copyright Michael Sproul 2014.

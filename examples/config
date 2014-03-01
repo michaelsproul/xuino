@@ -1,6 +1,6 @@
 # Example config file
-# Set global config with ~/.squidrc and project specific config with .squid
-[squid]
+# Set global config with ~/.xuinorc and project specific config with .xuino
+[xuino]
 arduino_dir = /usr/share/arduino
 arduino_ver = <autodetected>
-compile_dir = ~/.squid
+compile_dir = ~/.xuino

@@ -1,8 +1,8 @@
-"""Dependencies file for Squid.
+"""Dependencies file for Xuino.
 
 Please help improve this file by adding dependencies for other libraries!
 
-Contribute on Github: https://github.com/gnusouth/squid
+Contribute on Github: https://github.com/gnusouth/xuino
 
 You can specify the math library as a dependency with the name "m".
 All other libraries are identified by their case-sensitive names from the main Arduino directory.
