@@ -1,7 +1,7 @@
 Xuino
 =====
 
-Xuino is a command-line Arduino toolkit that aims to be simple & C-like.
+Xuino ("zwee-no") is a command-line Arduino toolkit that aims to be simple & C-like.
 
 It facilitates the use of simple makefiles by handling the compilation of the Arduino standard libraries.
 
@@ -22,7 +22,7 @@ Before you dive into compiling Arduino code, make sure you've installed all of t
 
 The package names may vary depending on your distribution. You might be able to install them all at once by installing an Arduino package.
 
-With that done, clone this git repository and run `sudo make install`. You can adjust Xuino's installation directory by editing the Makefile.
+With that done, clone this git repository and run `sudo make install`. You can adjust Xuino's installation directory by editing the makefile.
 
 # Getting Started
 
@@ -30,7 +30,7 @@ To get a feel for how Xuino works, let's compile a simple web server.
 
 ## Setting Up
 
-First up, grab an Arduino and plug it in via USB. Then, open a terminal in the WebServer example directory.
+First up, grab an Arduino and plug it in via USB. Then, open up a terminal in the WebServer example directory.
 
 ```
 cd examples/WebServer
@@ -56,7 +56,7 @@ Now your WebServer directory should contain two files; WebServer.ino and Makefil
 
 ## Compiling
 
-Although it's possible to make your project with just plain `make`, Xuino also provides a make command that provides better diagnostic output (and is a tiny bit faster).
+Although it's possible to make your project with just plain `make`, Xuino also provides a make command with better diagnostic output.
 
 ```
 xuino make
@@ -64,7 +64,7 @@ xuino make
 
 Notice how the SPI library was compiled & linked automatically due to the Ethernet library's dependency on it!
 
-All being well, you should now see a few `.elf`, `.hex` and `.o` files in the current directory. The `.hex` file is the Arduino executable binary, and the others are intermediate object code and can be deleted if you don't mind a bit of recompilation (add `rm *.o *.elf` to the hex making rule).
+All being well, you should now see a few `.elf`, `.hex` and `.o` files in the current directory. The `.hex` file is the Arduino executable binary, and the others are intermediate object code which can be deleted if you don't mind a bit of recompilation (add `rm *.o *.elf` to the hex making rule).
 
 ## Uploading
 
@@ -108,7 +108,7 @@ See the example configuration file at [examples/config](https://github.com/gnuso
 
 # Contribute
 
-If you like Xuino, please help out! If you feel like writing documentation, adding features or reporting bugs, I'm more than happy to accept your [pull requests](https://help.github.com/articles/using-pull-requests). I'm planning to write some documentation on how it all works soon because one of Xuino's main aims is to promote education. You're invited to read the source code and give feedback. My hope is that Xuino's source code is easy to understand, and as simply as possible.
+If you like Xuino, please help out! If you feel like writing documentation, adding features or reporting bugs, I'm more than happy to accept your [pull requests](https://help.github.com/articles/using-pull-requests). I'm planning to write some documentation on how it all works soon. You're invited to read the source code and give feedback. My hope is that Xuino's source code is easy to understand, and as simply as possible.
 
 Thanks for stopping by!
 

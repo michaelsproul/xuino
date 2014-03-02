@@ -1,0 +1,20 @@
+# Maintainer: Michael Sproul <micsproul@gmail.com>
+pkgname=xuino
+pkgver=0.1a
+pkgrel=1
+pkgdesc="Simple command line Arduino toolkit."
+arch=("any")
+url="https://github.com/gnusouth/xuino"
+license=('GPL3')
+depends=("python"
+	 "arduino"
+	 "make"
+	 "picocom"
+)
+source=("${url}/archive/v${pkgver}.tar.gz")
+md5sums=('909765c0c6177130214b89bb1506e41d')
+
+package() {
+	cd "$srcdir/$pkgname-$pkgver"
+	make DESTDIR="$pkgdir" install
+}
