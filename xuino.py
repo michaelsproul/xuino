@@ -773,3 +773,9 @@ if __name__ == "__main__":
 	args.func(args)
 else:
 	config = read_config()
+
+# vim: set noexpandtab tabstop=8 :
+# Local variables:
+# tab-width: 8
+# indent-tabs-mode: 8
+# End:
