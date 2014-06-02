@@ -1,0 +1,3 @@
+[xuino]
+library_dirs = ./custom_libraries
+# NB: Just "custom_libraries" would also work

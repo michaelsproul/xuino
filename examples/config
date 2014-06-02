@@ -4,3 +4,4 @@
 arduino_dir = /usr/share/arduino
 arduino_ver = <autodetected>
 compile_dir = ~/.xuino
+library_dirs = /your/path/1 /your/path/2

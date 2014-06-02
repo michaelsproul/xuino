@@ -59,7 +59,8 @@ def read_config():
 	# Load defaults
 	defaults = {"xuino": {	"arduino_root": "/usr/share/arduino",
 				"arduino_ver": "",
-				"compile_root": "~/.xuino/"
+				"compile_root": "~/.xuino/",
+				"library_dirs": ""
 	}}
 
 	parser.read_dict(defaults)
@@ -80,7 +81,15 @@ def read_config():
 	config["arduino_root"] = os.path.expanduser(config["arduino_root"])
 	config["compile_root"] = os.path.expanduser(config["compile_root"])
 
-	# Figure out software version
+	# Convert the space separated list of library directories into a list
+	library_dirs = []
+	for lib_dir in config["library_dirs"].split():
+		lib_dir = os.path.abspath(os.path.expanduser(lib_dir))
+		library_dirs.append(lib_dir)
+
+	config["library_dirs"] = library_dirs
+
+	# Figure out the Arduino library version
 	if config["arduino_ver"] == "":
 		config["arduino_ver"] = read_arduino_ver(config["arduino_root"])
 	else:
@@ -326,12 +335,16 @@ def get_src(libraries, variant):
 		if lib == math_library:
 			continue
 
-		# Look in libraries/name otherwise
-		lib_main = os.path.join(root, "libraries", lib)
+		# Look for the library in root/libraries/name and the user specified directories
+		potential_locations = [os.path.join(user_dir, lib) for user_dir in config["library_dirs"]]
+		potential_locations.append(os.path.join(root, "libraries", lib))
 
-		# Check for existence
-		if not os.path.isdir(lib_main):
-			_error("No library found for name '%s'" % lib)
+		for lib_dir in potential_locations:
+			if os.path.isdir(lib_dir):
+				lib_main = lib_dir
+				break
+		else:
+			_error("No library found with name '%s'" % lib)
 
 		src_dirs.append(lib_main)
 
@@ -350,9 +363,9 @@ def _get_obj(args):
 	if library == "core":
 		# XXX: This takes advantage of the fact that the variant
 		# folders only include headers. Might need to be updated.
-		library_dirs = _get_src(["core"], "n/a")
+		library_dirs = get_src(["core"], "n/a")
 	else:
-		library_dirs = _get_src([args.library], "n/a")
+		library_dirs = get_src([library], "n/a")
 
 	objects = get_obj(library_dirs)
 	print(" ".join(objects))

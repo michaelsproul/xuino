@@ -40,6 +40,7 @@ upload: $(PROJECT).hex
 	-b $(UPLOAD_BAUD) -U flash:w:$< -P$(USB_DEVICE)
 
 serial:
+	@echo 'Press Ctrl-A Ctrl-X to disconnect.'
 	picocom $(USB_DEVICE)
 
 %.o: %.ino
