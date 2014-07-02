@@ -22,7 +22,7 @@ Before you dive into compiling Arduino code, make sure you've installed all of t
 
 The package names may vary depending on your distribution. You might be able to install them all at once by installing an Arduino package.
 
-With that done, you can install Xuino from PyPI:
+With that done, you can install Xuino from [PyPI](https://pypi.python.org/pypi/xuino):
 
 ```
 $ sudo pip install xuino
