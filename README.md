@@ -3,7 +3,7 @@ Xuino
 
 Xuino ("zwee-no") is a command-line Arduino toolkit that aims to be simple & C-like.
 
-It facilitates the use of simple makefiles by handling the compilation of the Arduino standard libraries.
+It facilitates the use of simple makefiles by handling the compilation of the Arduino standard libraries. It also exposes a Python API for use with other tools.
 
 It was inspired by [Ino](https://github.com/amperka/ino) and runs on Linux & OS X.
 
@@ -12,7 +12,7 @@ It was inspired by [Ino](https://github.com/amperka/ino) and runs on Linux & OS 
 Before you dive into compiling Arduino code, make sure you've installed all of the following dependencies.
 
 * Python 3.3 or later
-* Make
+* GNU Make
 * The Arduino Platform, version 1.0.x
 * The AVR GNU C compiler: `avr-gcc` on Arch Linux, `gcc-avr` on Debian/Ubuntu
 * The AVR Binary Utilities: `avr-binutils` on Arch Linux, `binutils-avr` on Debian/Ubuntu
@@ -22,7 +22,11 @@ Before you dive into compiling Arduino code, make sure you've installed all of t
 
 The package names may vary depending on your distribution. You might be able to install them all at once by installing an Arduino package.
 
-With that done, clone this git repository and run `sudo make install`. You can adjust Xuino's installation directory by editing the makefile.
+With that done, you can install Xuino from PyPI:
+
+```
+$ sudo pip install xuino
+```
 
 # Getting Started
 
@@ -33,13 +37,13 @@ To get a feel for how Xuino works, let's compile a simple web server.
 First up, grab an Arduino and plug it in via USB. Then, open up a terminal in the WebServer example directory.
 
 ```
-cd examples/WebServer
+$ cd examples/WebServer
 ```
 
 At the moment, this folder just contains standard Arduino code. Let's add a Xuino Makefile so we can compile it.
 
 ```
-xuino init
+$ xuino init
 ```
 
 The `init` command creates a new makefile from the template at [makefiles/Project.mk](https://github.com/gnusouth/xuino/blob/master/makefiles/Project.mk). It will ask you a few questions about the project you're setting up, and prefill some variables accordingly.
@@ -59,7 +63,7 @@ Now your WebServer directory should contain two files; WebServer.ino and Makefil
 Although it's possible to make your project with just plain `make`, Xuino also provides a make command with better diagnostic output.
 
 ```
-xuino make
+$ xuino make
 ```
 
 Notice how the SPI library was compiled & linked automatically due to the Ethernet library's dependency on it!

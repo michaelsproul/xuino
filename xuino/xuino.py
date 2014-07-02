@@ -1,51 +1,48 @@
-#!/usr/bin/env python3
-
 """Xuino Arduino toolkit by Michael Sproul, Copyright 2014.
 
-Github: https://github.com/gnusouth/xuino
+Github: https://github.com/michaelsproul/xuino
 
 Licensed under the terms of the GNU GPLv3+
 See: https://www.gnu.org/licenses/gpl.html
 """
 
-__version__ = "0.1a"
-
 import os
 import re
+import io
 import sys
 import glob
+import json
 import shutil
 import argparse
 import subprocess
 import configparser
+import pkg_resources as pkg
 
-# Find the Xuino installation directory
-xuino_root = sys.modules[__name__].__file__
-xuino_root = os.path.realpath(xuino_root)
-xuino_root = os.path.dirname(xuino_root)
+# Load Xuino's dependency map
+dependency_string = pkg.resource_string(__name__, "dependencies.json").decode()
+dependency_string = io.StringIO(dependency_string)
+dependency_map = json.load(dependency_string)
+dependency_map = {lib: set(deps) for (lib, deps) in dependency_map.items()}
 
-# Import the dependencies file
-dependencies_file = os.path.join(xuino_root, "dependencies.py")
-from importlib.machinery import SourceFileLoader
-dependencies = SourceFileLoader("xuino.dependencies", dependencies_file).load_module()
-
-dependency_map = dependencies.dependency_map
-
-# Main configuration object (initialised later, depending on context)
-config = {}
+# Global configuration object, initialised later
+config = None
 
 # The math library's name
 math_library = "m"
 
-# The commands beginning with an underscore are called when this file is run
-# as a stand-alone executable. The non-underscored versions are the ones that
-# take sensible arguments and do all of the actual work.
+# Track whether the code is being run as an executable
+running_standalone = False
+
+# The commands beginning with an underscore are called from the command-line.
+# The non-underscored versions are the ones that take sensible arguments
+# and do all of the actual work.
 
 def _error(message):
-	"""Quit the program if running interactively, or raise an exception otherwise."""
-	if __name__ == "__main__":
+	"""Quit the program if running stand alone, or raise an exception otherwise."""
+	if running_standalone:
 		print("Error: " + message)
 		sys.exit(1)
+	print("__name__ = {}".format(__name__))
 	raise Exception(message)
 
 
@@ -58,9 +55,9 @@ def read_config():
 
 	# Load defaults
 	defaults = {"xuino": {	"arduino_root": "/usr/share/arduino",
-				"arduino_ver": "",
-				"compile_root": "~/.xuino/",
-				"library_dirs": ""
+							"arduino_ver": "",
+							"compile_root": "~/.xuino/",
+							"library_dirs": ""
 	}}
 
 	parser.read_dict(defaults)
@@ -104,8 +101,8 @@ def read_arduino_ver(arduino_root):
 	version_path = os.path.join(arduino_root, "lib", "version.txt")
 
 	if not os.path.isfile(version_path):
-		m = """Unable to find version.txt
-		       Please explicity specify a version in ~/.xuinorc or .xuino"""
+		m = "Unable to find version.txt\n" \
+			"Please explicitly specify a version in ~/.xuinorc or .xuino"
 		_error(m)
 
 	with open(version_path, "r") as version_file:
@@ -115,8 +112,8 @@ def read_arduino_ver(arduino_root):
 		version = int(version.replace(".", ""))
 		return version
 	except ValueError:
-		m = """Unable to parse version number.
-		       Please explicitly specify a version in ~/.xuinorc or .xuino"""
+		m = "Unable to parse version number.\n" \
+			"Please explicitly specify a version in ~/.xuinorc or .xuino"
 		_error(m)
 
 
@@ -193,10 +190,7 @@ def _init(args):
 	libraries = input("Libraries: ")
 
 	# Inject everything into the makefile template
-	template_path = os.path.join(xuino_root, "makefiles", "Project.mk")
-	with open(template_path, "r") as template_file:
-		makefile = template_file.read()
-
+	makefile = pkg.resource_string(__name__, "makefiles/Project.mk").decode()
 	makefile = makefile.replace("{PROJECT}", project)
 	makefile = makefile.replace("{BOARD}", board)
 	makefile = makefile.replace("{LIBRARIES}", libraries)
@@ -228,7 +222,7 @@ def _list_boards(args):
 
 def list_boards(boards):
 	"""Pretty print a list of boards in alphabetical order."""
-	board_names = sorted(boards.keys(), key=lambda x: x.lower())
+	board_names = sorted(boards.keys(), key = lambda x: x.lower())
 	for board in board_names:
 		spacer = "\t\t" if len(board) < 8 else "\t"
 		print("%s%s'%s'" % (board, spacer, boards[board]["name"]))
@@ -373,17 +367,15 @@ def _get_obj(args):
 
 def get_obj(library_dirs):
 	"""Get the names of all the .o files in the given directories."""
-	# Filter functions, to turn source filepaths into object filenames
-	c_filter = lambda x: x.split("/")[-1].replace(".c", ".o")
-	cpp_filter = lambda x: x.split("/")[-1].replace(".cpp", ".o")
+	# Filter function, to turn source filepaths into object filenames
+	obj_filter = lambda x, ext: x.split("/")[-1].replace(ext, ".o")
 
 	# Find objects for each directory in the input
 	objects = []
 	for directory in library_dirs:
-		c_files = glob.glob("%s/*.c" % directory)
-		objects.extend([c_filter(x) for x in c_files])
-		cpp_files = glob.glob("%s/*.cpp" % directory)
-		objects.extend([cpp_filter(x) for x in cpp_files])
+		for ext in [".c", ".cpp", "ino"]:
+			files = glob.glob("{:s}/*{:s}".format(directory, ext))
+			objects.extend([obj_filter(x, ext) for x in files])
 
 	return objects
 
@@ -535,19 +527,21 @@ def get_lib(libraries, board, boards):
 		# Set the compilation directory
 		compile_dir = compile_dirs[lib]
 		try:
-			os.makedirs(compile_dir, mode=0o0775, exist_ok=True)
+			os.makedirs(compile_dir, mode = 0o0775, exist_ok = True)
 		except OSError:
 			pass
 
 		# Find the makefile to use
-		makefile = os.path.join(xuino_root, "makefiles", "libraries", "%s.mk" % lib)
-		if not os.path.exists(makefile):
-			makefile = os.path.join(xuino_root, "makefiles", "Library.mk")
+		specialised_makefile = "makefiles/libraries/{:s}.mk".format(lib)
+		if pkg.resource_exists(__name__, specialised_makefile):
+			makefile = pkg.resource_filename(__name__, specialised_makefile)
+		else:
+			makefile = pkg.resource_filename(__name__, "makefiles/Library.mk")
 
 		# Run make in a subprocess
 		make_args = ["make", "-f", makefile]
-		makes[lib] = subprocess.Popen(make_args, cwd=compile_dir, env=env[lib],
-						stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+		makes[lib] = subprocess.Popen(make_args, cwd = compile_dir, env = env[lib],
+						stdout = subprocess.PIPE, stderr = subprocess.PIPE)
 
 	# Wait for make processes to finish and collect output
 	error = False
@@ -571,7 +565,7 @@ def get_lib(libraries, board, boards):
 	return (library_list, output)
 
 
-def make(args="unused"):
+def make(args = "unused"):
 	"""Make the project in the current directory, using its Makefile.
 
 	This function "pre-fills" all xuino variables to avoid multiple calls and
@@ -581,8 +575,8 @@ def make(args="unused"):
 	"""
 	# Check for makefile existence
 	if not os.path.isfile("Makefile"):
-		m = """No Makefile in the current directory.
-		       Run `xuino init` to get one."""
+		m = "No Makefile in the current directory.\n" \
+			"Run `xuino init` to get one."
 		_error(m)
 
 	# Attempt to get the BOARD & LIBRARIES variables from the shell environment
@@ -597,13 +591,13 @@ def make(args="unused"):
 	makefile = None
 	if board is None or libraries is None:
 		makefile = open("Makefile", "r")
-		board_regex =  re.compile(r"^BOARD\s*=(?P<value>[^#]*).*$")
+		board_regex = re.compile(r"^BOARD\s*=(?P<value>[^#]*).*$")
 		lib_regex = re.compile(r"^LIBRARIES\s*=(?P<value>[^#]*).*$")
 
 	while board is None or libraries is None:
 		line = makefile.readline()
 		if line == "":
-			_error("Unable to extract BOARDS & LIBRARIES from makefile due to EOF.")
+			_error("Unable to extract BOARDS & LIBRARIES from Makefile.")
 
 		if board is None:
 			match = board_regex.match(line)
@@ -668,7 +662,7 @@ def make(args="unused"):
 	}
 	# XXX: Should we pass all of os.environ?
 
-	make = subprocess.Popen(["make"], env=env)
+	make = subprocess.Popen(["make"], env = env)
 	returncode = make.wait()
 	if returncode == 0:
 		print("Success!")
@@ -686,21 +680,21 @@ def _setup_argparser():
 			sys.exit(1)
 
 	# Top level parser
-	parser = ArgumentParser(prog="xuino")
+	parser = ArgumentParser(prog = "xuino")
 	subparsers = parser.add_subparsers()
 
 	# Help strings
 	h_init = "Create a new Arduino project."
 	h_init_dir = "The directory in which to create the new project."
-	h_clean = "Clearout the cache of compiled library code."
+	h_clean = "Clear out the cache of compiled library code."
 	h_list = "List all available boards."
 	h_make = "Make the project in the current directory (verbosely)."
 	h_get = "Get compiler flags, compiled libraries, etc."
-	h_gprop1= "Get a board property from boards.txt"
+	h_gprop1 = "Get a board property from boards.txt"
 	h_gprop2 = "The name of the property as it appears in boards.txt\n" \
-		  "E.g. atmega328.build.f_cpu"
+				"E.g. atmega328.build.f_cpu"
 	h_board = "The short name of your Arduino board.\n" \
-		  "Run `xuino list` for a list."
+				"Run `xuino list` for a list."
 	h_cflags = "Get the compiler flags for a specific board."
 	h_src = "Get a list of directories containing library source code."
 	h_src_libs = "A list of libraries to get source directories for."
@@ -713,65 +707,74 @@ def _setup_argparser():
 	h_lib_libs = "A list of libraries to obtain compiled version of."
 	h_dash_big_l = "Add a -L before each directory (see gcc's -L option)."
 	h_dash_little_l = "Add a list of compiled archive names beginning with -l\n"\
-			  "For example: -lethernet -lspi -lcore"
+						"For example: -lethernet -lspi -lcore"
 
 	# Parser for `xuino init`
-	init_parser = subparsers.add_parser("init", help=h_init)
-	init_parser.add_argument("dir", nargs="?", default=".", help=h_init_dir)
-	init_parser.set_defaults(func=_init)
+	init_parser = subparsers.add_parser("init", help = h_init)
+	init_parser.add_argument("dir", nargs = "?", default = ".", help = h_init_dir)
+	init_parser.set_defaults(func = _init)
 
 	# Parser for `xuino clean`
-	clean_parser = subparsers.add_parser("clean", help=h_clean)
-	clean_parser.set_defaults(func=_clean)
+	clean_parser = subparsers.add_parser("clean", help = h_clean)
+	clean_parser.set_defaults(func = _clean)
 
 	# Parser for `xuino list`
-	list_parser = subparsers.add_parser("list", help=h_list)
-	list_parser.set_defaults(func=_list_boards)
+	list_parser = subparsers.add_parser("list", help = h_list)
+	list_parser.set_defaults(func = _list_boards)
 
 	# Parser for `xuino make`
-	make_parser = subparsers.add_parser("make", help=h_make)
-	make_parser.set_defaults(func=make)
+	make_parser = subparsers.add_parser("make", help = h_make)
+	make_parser.set_defaults(func = make)
 
 	# Parser for `xuino get`
-	get_parser = subparsers.add_parser("get", help=h_get)
+	get_parser = subparsers.add_parser("get", help = h_get)
 	get_subparsers = get_parser.add_subparsers()
 
 	# Parser for `xuino get property`
-	property_parser = get_subparsers.add_parser("property", help=h_gprop1)
-	property_parser.add_argument("property", help=h_gprop2)
-	property_parser.set_defaults(func=_get_property)
+	property_parser = get_subparsers.add_parser("property", help = h_gprop1)
+	property_parser.add_argument("property", help = h_gprop2)
+	property_parser.set_defaults(func = _get_property)
 
 	# Parser for `xuino get cflags`
-	cflags_parser = get_subparsers.add_parser("cflags", help=h_cflags)
-	cflags_parser.add_argument("board", help=h_board)
-	cflags_parser.set_defaults(func=_get_cflags)
+	cflags_parser = get_subparsers.add_parser("cflags", help = h_cflags)
+	cflags_parser.add_argument("board", help = h_board)
+	cflags_parser.set_defaults(func = _get_cflags)
 
 	# Parser for `xuino get src`
-	src_parser = get_subparsers.add_parser("src", help=h_src)
-	src_parser.add_argument("libraries", nargs="*", help=h_src_libs)
-	src_parser.add_argument("--board", default=None, help=h_board)
-	src_parser.add_argument("-I", dest="dash_i", action="store_true", help=h_dash_i)
-	src_parser.set_defaults(func=_get_src)
+	src_parser = get_subparsers.add_parser("src", help = h_src)
+	src_parser.add_argument("libraries", nargs = "*", help = h_src_libs)
+	src_parser.add_argument("--board", default = None, help = h_board)
+	src_parser.add_argument("-I", dest = "dash_i", action = "store_true", help = h_dash_i)
+	src_parser.set_defaults(func = _get_src)
 
 	# Parser for `xuino get obj`
-	obj_parser = get_subparsers.add_parser("obj", help=h_obj)
-	obj_parser.add_argument("library", help=h_obj_lib)
-	obj_parser.set_defaults(func=_get_obj)
+	obj_parser = get_subparsers.add_parser("obj", help = h_obj)
+	obj_parser.add_argument("library", help = h_obj_lib)
+	obj_parser.set_defaults(func = _get_obj)
 
 	# Parser for `xuino get lib`
-	lib_parser = get_subparsers.add_parser("lib", help=h_lib)
-	lib_parser.add_argument("libraries", nargs="*", help=h_lib_libs)
-	lib_parser.add_argument("--board", required=True, help=h_board)
-	lib_parser.add_argument("-L", dest="dash_big_l", action="store_true", help=h_dash_big_l)
-	lib_parser.add_argument("-l", dest="dash_little_l", action="store_true",
-								help=h_dash_little_l)
-	lib_parser.add_argument("-v", "--verbose", action="store_true")
-	lib_parser.set_defaults(func=_get_lib)
+	lib_parser = get_subparsers.add_parser("lib", help = h_lib)
+	lib_parser.add_argument("libraries", nargs = "*", help = h_lib_libs)
+	lib_parser.add_argument("--board", required = True, help = h_board)
+	lib_parser.add_argument("-L", dest = "dash_big_l", action = "store_true", help = h_dash_big_l)
+	lib_parser.add_argument("-l", dest = "dash_little_l", action = "store_true",
+								help = h_dash_little_l)
+	lib_parser.add_argument("-v", "--verbose", action = "store_true")
+	lib_parser.set_defaults(func = _get_lib)
 
 	return parser
 
 
-if __name__ == "__main__":
+# Config initialised here upon importing
+config = read_config()
+
+
+# Main function, entry point
+def main():
+	# Set the 'standalone' flag so neat errors are printed rather than stacktraces
+	global running_standalone
+	running_standalone = True
+
 	# Parse args
 	parser = _setup_argparser()
 	args = parser.parse_args()
@@ -781,14 +784,11 @@ if __name__ == "__main__":
 		parser.print_help()
 		sys.exit(1)
 
-	# Read config & execute the command
-	config = read_config()
+	# Otherwise, execute the command
 	args.func(args)
-else:
-	config = read_config()
 
-# vim: set noexpandtab tabstop=8 :
+# vim: set noexpandtab tabstop=4 :
 # Local variables:
-# tab-width: 8
-# indent-tabs-mode: 8
+# tab-width: 4
+# indent-tabs-mode: 4
 # End:

@@ -1,1 +1,5 @@
-dist/*
+dist
+build
+*.egg-info
+
+examples/*/Makefile

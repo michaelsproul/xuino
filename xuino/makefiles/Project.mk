@@ -30,6 +30,7 @@ OBJECTS = $(PROJECT).o
 $(PROJECT).hex: $(PROJECT).elf
 	@echo Making $@
 	@avr-objcopy -O ihex $< $@
+	@rm $<
 
 $(PROJECT).elf: $(OBJECTS)
 	@echo Linking $@
@@ -57,3 +58,5 @@ serial:
 
 clean:
 	rm -f *.o *.hex *.elf
+
+.PHONY: upload serial clean
